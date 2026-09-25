@@ -124,6 +124,12 @@ function App() {
       try { parsed = JSON.parse(text); } catch {}
       if (!res.ok) {
         const detail = typeof parsed === "string" ? parsed : JSON.stringify(parsed, null, 2);
+        if (res.status === 401 || res.status === 403) {
+          throw new Error(
+            "NVIDIA rejected the API key (HTTP " + res.status + "). Check that your NVIDIA Build API key is valid, active, and copied without extra quotes/spaces. If you pasted \"Bearer nvapi-...\", that format is accepted."
+            + "\n\nUpstream response:\n" + detail
+          );
+        }
         throw new Error(res.status + " " + res.statusText + "\n" + detail);
       }
       setElapsed(Math.round(performance.now() - started));
