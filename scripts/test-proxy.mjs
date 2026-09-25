@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { handler } from "../api/proxy.js";
+import handler from "../api/proxy.js";
 
 function makeResponse() {
   const chunks = [];
