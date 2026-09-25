@@ -613,19 +613,21 @@ function App() {
             </div>
           </div>
 
-          <label>System message
-            <textarea rows="3" value={config.system} onChange={(e) => update("system", e.target.value)} placeholder="Optional system instruction…" />
-          </label>
+          {config.bodyMode === "chat" ? (
+            <>
+              <label>System message
+                <textarea rows="3" value={config.system} onChange={(e) => update("system", e.target.value)} placeholder="Optional system instruction…" />
+              </label>
 
-          <label>User message
-            <textarea className="message-box" rows="8" value={config.message} onChange={(e) => update("message", e.target.value)} placeholder="Write your message…" />
-          </label>
-
-          {config.bodyMode === "raw" ? (
+              <label>User message
+                <textarea className="message-box" rows="8" value={config.message} onChange={(e) => update("message", e.target.value)} placeholder="Write your message…" />
+              </label>
+            </>
+          ) : (
             <label>
               Raw JSON body
               <textarea
-                rows="12"
+                rows="16"
                 value={config.rawBody}
                 onChange={(e) => update("rawBody", e.target.value)}
                 className={requestBodyError ? "invalid" : ""}
@@ -633,10 +635,6 @@ function App() {
               />
               {requestBodyError && <span className="field-error">{requestBodyError}</span>}
             </label>
-          ) : (
-            <>
-          <label id="message-section" className="visually-hidden-label">Chat fields</label>
-            </>
           )}
 
           <div id="parameters-section" className="section-anchor parameter-card">
