@@ -171,10 +171,40 @@ export default async function handler(req, res) {
     }
 
     const contentType = upstream.headers.get("content-type") || "text/plain; charset=utf-8";
+    const text = await upstream.text();
+
+    // NVIDIA can distinguish a valid key from an account that lacks access to
+    // the public inference endpoints. Diagnose that case automatically.
+    if (isNvidia && (upstream.status === 401 || upstream.status === 403) && normalizedKey) {
+      try {
+        const modelsResponse = await fetch("https://integrate.api.nvidia.com/v1/models", {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${normalizedKey}`
+          },
+          redirect: "manual"
+        });
+
+        if (modelsResponse.ok) {
+          return res.status(403).json({
+            status: 403,
+            title: "NVIDIA inference access denied",
+            detail: "NVIDIA accepted this API key for the model catalog, but rejected inference access. The account/key likely lacks the NVIDIA Public API Endpoints permission.",
+            upstream: JSON.parse(text),
+            diagnostic: {
+              models_endpoint: 200,
+              inference_endpoint: upstream.status
+            }
+          });
+        }
+      } catch {
+        // Keep the original upstream error if the diagnostic request fails.
+      }
+    }
+
     res.statusCode = upstream.status;
     res.setHeader("Content-Type", contentType);
-
-    const text = await upstream.text();
     return res.end(text);
   } catch (error) {
     return res.status(502).json({
