@@ -2,7 +2,25 @@ import React, { useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
-const NVIDIA_MODELS = [
+const FREE_ENDPOINT_MODELS = new Set([
+  "deepseek-ai/deepseek-v4.1-flash",
+  "nvidia/nemotron-3.5-lightning-30b-a3b",
+  "nvidia/nemotron-3-super-120b-a12b",
+  "nvidia/nemotron-3-ultra-550b-a55b",
+  "nvidia/nemotron-3.5-content-safety",
+  "openai/gpt-oss-20b",
+  "meta/llama-guard-4-12b",
+  "meta/llama-3.2-11b-vision-instruct",
+  "meta/llama-3.2-90b-vision-instruct",
+  "mistralai/mistral-nemotron",
+  "moonshotai/kimi-k3",
+  "poolside/laguna-xs-2.1",
+  "meta/muse-glimmer-30b",
+  "google/diffusiongemma-26b-a4b-it",
+  "google/gemma-4-31b-it",
+  "z-ai/glm-5.3",
+  "z-ai/glm-5.3-flash"
+]);\n\nconst NVIDIA_MODELS = [
   "01-ai/yi-large",
   "adept/fuyu-8b",
   "ai21labs/jamba-1.5-large-instruct",
