@@ -185,6 +185,10 @@ function App() {
   const [activeTab, setActiveTab] = useState("message");
   const [modelSearch, setModelSearch] = useState("");
   const [availableModels, setAvailableModels] = useState(NVIDIA_MODELS);
+  const isNvidiaEndpoint = useMemo(
+    () => config.url.includes("integrate.api.nvidia.com"),
+    [config.url]
+  );
   const requestControllerRef = React.useRef(null);
 
   const update = (key, value) => setConfig((c) => ({ ...c, [key]: value }));
@@ -543,7 +547,9 @@ function App() {
         </div>
         <div className="top-actions">
           <button className="ghost" onClick={reset}>Reset</button>
-          <button className="ghost" onClick={testNvidiaKey} disabled={loading}>Test NVIDIA Key</button>
+          {isNvidiaEndpoint && (
+            <button className="ghost" onClick={testNvidiaKey} disabled={loading}>Test NVIDIA Key</button>
+          )}
           <button className="ghost" onClick={() => navigator.clipboard.writeText(JSON.stringify(requestBody, null, 2))}>Copy JSON</button>
           <button
             className={loading ? "danger" : "primary"}
