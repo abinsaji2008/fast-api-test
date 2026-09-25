@@ -1,7 +1,49 @@
+export const maxDuration = 300;
+
+function normalizeApiKey(value) {
+  if (typeof value !== "string") return "";
+  let key = value.trim();
+
+  // Remove accidental surrounding quotes from copy/paste.
+  if (
+    (key.startsWith('"') && key.endsWith('"')) ||
+    (key.startsWith("'") && key.endsWith("'"))
+  ) {
+    key = key.slice(1, -1).trim();
+  }
+
+  // Accept either a raw key or "Bearer <key>".
+  key = key.replace(/^Bearer\s+/i, "").trim();
+
+  return key;
+}
+
+function isPrivateHost(hostname) {
+  const host = hostname.toLowerCase();
+
+  if (
+    host === "localhost" ||
+    host === "localhost.localdomain" ||
+    host === "0.0.0.0" ||
+    host === "::1"
+  ) {
+    return true;
+  }
+
+  if (/^127\./.test(host)) return true;
+  if (/^10\./.test(host)) return true;
+  if (/^192\.168\./.test(host)) return true;
+  if (/^169\.254\./.test(host)) return true;
+  if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) return true;
+
+  return false;
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Cache-Control", "no-store");
 
   if (req.method === "OPTIONS") {
     return res.status(204).end();
@@ -12,7 +54,17 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { url, method = "POST", headers = {}, body } = req.body || {};
+    const incoming = typeof req.body === "string"
+      ? JSON.parse(req.body)
+      : (req.body || {});
+
+    const {
+      url,
+      method = "POST",
+      headers = {},
+      body,
+      apiKey = ""
+    } = incoming;
 
     if (!url || typeof url !== "string") {
       return res.status(400).json({ error: "Missing target URL" });
@@ -24,57 +76,62 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Only HTTP and HTTPS URLs are supported" });
     }
 
-    const host = target.hostname.toLowerCase();
-    const blocked =
-      host === "localhost" ||
-      host === "localhost.localdomain" ||
-      host === "0.0.0.0" ||
-      host === "::1" ||
-      host === "169.254.169.254" ||
-      /^127\./.test(host) ||
-      /^10\./.test(host) ||
-      /^192\.168\./.test(host) ||
-      /^172\.(1[6-9]|2\d|3[0-1])\./.test(host) ||
-      /^169\.254\./.test(host);
-
-    if (blocked) {
+    if (isPrivateHost(target.hostname)) {
       return res.status(400).json({ error: "Private/internal target URLs are not allowed" });
     }
 
     const safeHeaders = {};
+
     for (const [key, value] of Object.entries(headers || {})) {
-      const lower = key.toLowerCase();
-      if (["host", "content-length", "connection", "transfer-encoding"].includes(lower)) continue;
+      const lower = String(key).toLowerCase();
+
+      if (
+        ["host", "content-length", "connection", "transfer-encoding"].includes(lower)
+      ) {
+        continue;
+      }
+
+      // Never let a stale browser header override the explicit API-key field.
+      if (lower === "authorization" && normalizeApiKey(apiKey)) {
+        continue;
+      }
+
       if (typeof value === "string") {
         safeHeaders[key] = value;
       }
     }
 
-    // Normalize a common Postman/OpenAI-style authentication form.
-    if (typeof safeHeaders.Authorization === "string") {
-      const auth = safeHeaders.Authorization.trim();
-      if (/^Bearer\\s+Bearer\\s+/i.test(auth)) {
-        safeHeaders.Authorization = auth.replace(/^Bearer\\s+/i, "");
-      }
+    const normalizedKey = normalizeApiKey(apiKey);
+
+    if (normalizedKey) {
+      safeHeaders.Authorization = `Bearer ${normalizedKey}`;
+    }
+
+    if (!safeHeaders.Accept) {
+      safeHeaders.Accept = "application/json";
+    }
+
+    if (
+      !["GET", "HEAD"].includes(String(method).toUpperCase()) &&
+      !safeHeaders["Content-Type"] &&
+      !safeHeaders["content-type"]
+    ) {
+      safeHeaders["Content-Type"] = "application/json";
     }
 
     const upstream = await fetch(target, {
       method,
       headers: safeHeaders,
-      body: ["GET", "HEAD"].includes(method.toUpperCase()) ? undefined : JSON.stringify(body ?? {}),
+      body: ["GET", "HEAD"].includes(String(method).toUpperCase())
+        ? undefined
+        : JSON.stringify(body ?? {})
     });
 
     const contentType = upstream.headers.get("content-type") || "text/plain; charset=utf-8";
     res.statusCode = upstream.status;
     res.setHeader("Content-Type", contentType);
-    res.setHeader("Cache-Control", "no-store");
 
     const text = await upstream.text();
-
-    if (upstream.status === 401 || upstream.status === 403) {
-      return res.status(upstream.status).end(text);
-    }
-
     return res.end(text);
   } catch (error) {
     return res.status(502).json({
