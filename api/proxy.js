@@ -45,7 +45,17 @@ export default async function handler(req, res) {
     for (const [key, value] of Object.entries(headers || {})) {
       const lower = key.toLowerCase();
       if (["host", "content-length", "connection", "transfer-encoding"].includes(lower)) continue;
-      if (typeof value === "string") safeHeaders[key] = value;
+      if (typeof value === "string") {
+        safeHeaders[key] = value;
+      }
+    }
+
+    // Normalize a common Postman/OpenAI-style authentication form.
+    if (typeof safeHeaders.Authorization === "string") {
+      const auth = safeHeaders.Authorization.trim();
+      if (/^Bearer\\s+Bearer\\s+/i.test(auth)) {
+        safeHeaders.Authorization = auth.replace(/^Bearer\\s+/i, "");
+      }
     }
 
     const upstream = await fetch(target, {
@@ -60,6 +70,11 @@ export default async function handler(req, res) {
     res.setHeader("Cache-Control", "no-store");
 
     const text = await upstream.text();
+
+    if (upstream.status === 401 || upstream.status === 403) {
+      return res.status(upstream.status).end(text);
+    }
+
     return res.end(text);
   } catch (error) {
     return res.status(502).json({
