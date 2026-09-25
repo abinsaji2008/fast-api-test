@@ -127,6 +127,35 @@ const DEFAULTS = {
   rawBody: ""
 };
 
+function parseJsonObject(value, label) {
+  if (!value.trim()) return {};
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error(label + " must be valid JSON.");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(label + " must be a JSON object.");
+  }
+  return parsed;
+}
+
+function getRequestHeaders(config) {
+  return parseJsonObject(config.customHeaders, "Custom headers");
+}
+
+function getDirectHeaders(config) {
+  const headers = getRequestHeaders(config);
+  if (config.apiKey.trim()) {
+    for (const key of Object.keys(headers)) {
+      if (key.toLowerCase() === "authorization") delete headers[key];
+    }
+    headers.Authorization = "Bearer " + config.apiKey.trim();
+  }
+  return headers;
+}
+
 async function readStreamingResponse(response, onText, onFirstByte) {
   if (!response.body) {
     const text = await response.text();
@@ -273,7 +302,7 @@ function App() {
         throw new Error("Model refresh expects an OpenAI-compatible /v1/chat/completions URL.");
       }
 
-      const headers = config.customHeaders.trim() ? JSON.parse(config.customHeaders) : {};
+      const headers = getRequestHeaders(config);
       const payload = {
         url: target.toString(),
         method: "GET",
@@ -342,15 +371,16 @@ function App() {
       if (requestBodyError) throw new Error(requestBodyError);
 
       const targetUrl = new URL(config.url);
-      const headers = config.customHeaders.trim()
-        ? JSON.parse(config.customHeaders)
-        : {};
+      const headers = getRequestHeaders(config);
 
       if (config.bodyMode === "raw" && requestBody === null) {
         throw new Error("Raw JSON is invalid.");
       }
 
       if (!config.useProxy && config.apiKey.trim()) {
+        for (const key of Object.keys(headers)) {
+          if (key.toLowerCase() === "authorization") delete headers[key];
+        }
         headers.Authorization = "Bearer " + config.apiKey.trim();
       }
 
@@ -463,6 +493,112 @@ function App() {
     }
   };
 
+  const runNvidiaPostTest = async () => {
+    setLoading(true);
+    setError("");
+    setResponse(null);
+    const started = performance.now();
+
+    try {
+      if (!config.apiKey.trim()) {
+        throw new Error("Enter your NVIDIA API key first.");
+      }
+
+      const headers = getRequestHeaders(config);
+      const modelsRes = await fetch("/api/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: "https://integrate.api.nvidia.com/v1/models",
+          method: "GET",
+          apiKey: config.apiKey,
+          headers
+        })
+      });
+      const modelsText = await modelsRes.text();
+      let modelsBody;
+      try { modelsBody = JSON.parse(modelsText); } catch { modelsBody = modelsText; }
+
+      if (!modelsRes.ok) {
+        throw new Error(
+          "NVIDIA /v1/models failed (HTTP " + modelsRes.status + ")\n\n" +
+          (typeof modelsBody === "string" ? modelsBody : JSON.stringify(modelsBody, null, 2))
+        );
+      }
+
+      const body = {
+        model: config.model,
+        messages: [
+          ...(config.system.trim()
+            ? [{ role: "system", content: config.system }]
+            : []),
+          { role: "user", content: config.message }
+        ],
+        temperature: Number(config.temperature),
+        top_p: Number(config.topP),
+        max_tokens: Number(config.maxTokens),
+        stream: false
+      };
+
+      if (Number(config.reasoningBudget) > 0) {
+        body.reasoning_budget = Number(config.reasoningBudget);
+      }
+      if (config.enableThinking) {
+        body.chat_template_kwargs = { enable_thinking: true };
+      }
+
+      const chatRes = await fetch("/api/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: "https://integrate.api.nvidia.com/v1/chat/completions",
+          method: "POST",
+          apiKey: config.apiKey,
+          headers: { Accept: "application/json", "Content-Type": "application/json" },
+          body
+        })
+      });
+      const chatText = await chatRes.text();
+      let chatBody;
+      try { chatBody = JSON.parse(chatText); } catch { chatBody = chatText; }
+
+      const interpretation =
+        chatRes.status === 200
+          ? "Inference authorization works. The normal web request uses the same endpoint and JSON shape."
+          : (chatRes.status === 401 || chatRes.status === 403)
+            ? "NVIDIA accepted the key for /v1/models but rejected inference. This is an upstream authorization result, not a browser CORS failure."
+            : "NVIDIA returned a non-auth inference response. Inspect the response body for validation details.";
+
+      setResponse({
+        status: chatRes.status,
+        statusText: chatRes.statusText,
+        headers: Object.fromEntries(chatRes.headers.entries()),
+        body: {
+          postman_parity_test: true,
+          models: {
+            status: modelsRes.status,
+            model_count: Array.isArray(modelsBody?.data) ? modelsBody.data.length : null
+          },
+          chat_completions: {
+            status: chatRes.status,
+            body: chatBody
+          },
+          request_body: body,
+          interpretation
+        },
+        streaming: false
+      });
+      setElapsed(Math.round(performance.now() - started));
+    } catch (e) {
+      setElapsed(Math.round(performance.now() - started));
+      setError(e?.message || String(e));
+    } finally {
+      setLoading(false);
+      sessionStorage.setItem("fast-api-test-api-key", config.apiKey || "");
+      persist(config);
+    }
+  };
+
   const testNvidiaKey = async () => {
     setLoading(true);
     setError("");
@@ -519,13 +655,7 @@ function App() {
   };
 
   const copyCurl = async () => {
-    const headers = config.customHeaders.trim()
-      ? JSON.parse(config.customHeaders)
-      : {};
-    const finalHeaders = { ...headers };
-    if (config.apiKey.trim()) {
-      finalHeaders.Authorization = "Bearer " + config.apiKey.trim();
-    }
+    const finalHeaders = getDirectHeaders(config);
 
     const parts = [
       "curl",
@@ -580,7 +710,10 @@ function App() {
         <div className="top-actions">
           <button className="ghost" onClick={reset}>Reset</button>
           {isNvidiaEndpoint && (
-            <button className="ghost" onClick={testNvidiaKey} disabled={loading}>Test NVIDIA Key</button>
+            <>
+              <button className="ghost" onClick={testNvidiaKey} disabled={loading}>Test NVIDIA Key</button>
+              <button className="ghost" onClick={runNvidiaPostTest} disabled={loading}>NVIDIA POST Test</button>
+            </>
           )}
           <button className="ghost" onClick={copyCurl}>Copy cURL</button>
           <button className="ghost" onClick={() => navigator.clipboard.writeText(JSON.stringify(requestBody, null, 2))}>Copy JSON</button>
