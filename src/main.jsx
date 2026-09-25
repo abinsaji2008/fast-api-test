@@ -398,7 +398,7 @@ function App() {
 
         throw new Error(
           "HTTP " + res.status + " " + res.statusText +
-          "\\n\\n" + detail
+          "\n\n" + detail
         );
       }
 
@@ -583,7 +583,7 @@ function App() {
                 className="model-select"
                 value={NVIDIA_MODELS.includes(config.model) || availableModels.includes(config.model) ? config.model : "__custom__"}
                 onChange={(e) => {
-                  if (e.target.value !== "__custom__") update("model", e.target.value);
+                  update("model", e.target.value === "__custom__" ? "" : e.target.value);
                 }}
               >
                 {modelGroups.map(([provider, ids]) => (
