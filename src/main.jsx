@@ -122,8 +122,44 @@ const DEFAULTS = {
   stream: false,
   customHeaders: '{"Content-Type":"application/json","Accept":"application/json"}',
   extraJson: "",
-  useProxy: true
+  useProxy: true,
+  bodyMode: "chat",
+  rawBody: ""
 };
+
+async function readStreamingResponse(response, onText, onFirstByte) {
+  if (!response.body) {
+    const text = await response.text();
+    onText(text);
+    return text;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let combined = "";
+  let firstByteReported = false;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      if (!firstByteReported) {
+        firstByteReported = true;
+        onFirstByte?.();
+      }
+
+      combined += decoder.decode(value, { stream: true });
+      onText(combined);
+    }
+
+    combined += decoder.decode();
+    onText(combined);
+    return combined;
+  } finally {
+    reader.releaseLock();
+  }
+}
 
 function App() {
   const [config, setConfig] = useState(() => {
@@ -146,13 +182,26 @@ function App() {
     try { return JSON.parse(localStorage.getItem("fast-api-test-history") || "[]"); }
     catch { return []; }
   });
+  const [activeTab, setActiveTab] = useState("message");
+  const [modelSearch, setModelSearch] = useState("");
+  const [availableModels, setAvailableModels] = useState(NVIDIA_MODELS);
 
   const update = (key, value) => setConfig((c) => ({ ...c, [key]: value }));
 
   const requestBody = useMemo(() => {
+    if (config.bodyMode === "raw") {
+      if (!config.rawBody.trim()) return {};
+      try {
+        return JSON.parse(config.rawBody);
+      } catch {
+        return null;
+      }
+    }
+
     const messages = [];
     if (config.system.trim()) messages.push({ role: "system", content: config.system });
     messages.push({ role: "user", content: config.message });
+
     const body = {
       model: config.model,
       messages,
@@ -161,17 +210,41 @@ function App() {
       max_tokens: Number(config.maxTokens),
       stream: Boolean(config.stream)
     };
-    if (Number(config.reasoningBudget) > 0) body.reasoning_budget = Number(config.reasoningBudget);
+
+    if (Number(config.reasoningBudget) > 0) {
+      body.reasoning_budget = Number(config.reasoningBudget);
+    }
+
     if (config.enableThinking) {
       body.chat_template_kwargs = { enable_thinking: true };
     }
+
     if (config.extraJson.trim()) {
       try {
         Object.assign(body, JSON.parse(config.extraJson));
       } catch {}
     }
+
     return body;
   }, [config]);
+
+  const modelGroups = useMemo(() => {
+    const query = modelSearch.trim().toLowerCase();
+    const filtered = availableModels.filter((id) =>
+      !query || id.toLowerCase().includes(query)
+    );
+    const groups = {};
+    for (const id of filtered) {
+      const provider = id.includes("/") ? id.split("/")[0] : "other";
+      (groups[provider] ||= []).push(id);
+    }
+    return Object.entries(groups);
+  }, [availableModels, modelSearch]);
+
+  const requestBodyError =
+    config.bodyMode === "raw" && requestBody === null
+      ? "Raw JSON is invalid. Fix the JSON before sending."
+      : "";
 
   const persist = (next) => {
     const safeConfig = { ...next, apiKey: "" };
@@ -184,93 +257,172 @@ function App() {
     localStorage.setItem("fast-api-test-history", JSON.stringify(next));
   };
 
+  const refreshModels = async () => {
+    setLoading(true);
+    setError("");
+
+    try {
+      const target = new URL(config.url);
+      target.pathname = target.pathname.replace(/\\/chat\\/completions\\/?$/, "/models");
+      if (!target.pathname.endsWith("/models")) {
+        throw new Error("Model refresh expects an OpenAI-compatible /v1/chat/completions URL.");
+      }
+
+      const headers = config.customHeaders.trim() ? JSON.parse(config.customHeaders) : {};
+      const payload = {
+        url: target.toString(),
+        method: "GET",
+        headers,
+        apiKey: config.apiKey
+      };
+
+      const res = await fetch(config.useProxy ? "/api/proxy" : target.toString(), {
+        method: config.useProxy ? "POST" : "GET",
+        headers: config.useProxy
+          ? { "Content-Type": "application/json" }
+          : headers,
+        body: config.useProxy ? JSON.stringify(payload) : undefined
+      });
+
+      const text = await res.text();
+      let parsed;
+      try { parsed = JSON.parse(text); } catch { parsed = null; }
+
+      if (!res.ok) {
+        throw new Error("Model refresh failed (HTTP " + res.status + ")\\n\\n" + (parsed ? JSON.stringify(parsed, null, 2) : text));
+      }
+
+      const ids = Array.isArray(parsed?.data)
+        ? parsed.data.map((item) => item?.id).filter(Boolean)
+        : [];
+
+      if (!ids.length) {
+        throw new Error("The endpoint returned no model IDs.");
+      }
+
+      setAvailableModels((current) => Array.from(new Set([...ids, ...current])));
+      setResponse({
+        status: res.status,
+        statusText: res.statusText,
+        headers: Object.fromEntries(res.headers.entries()),
+        body: {
+          ok: true,
+          models_loaded: ids.length,
+          sample: ids.slice(0, 20)
+        },
+        streaming: false
+      });
+    } catch (e) {
+      setError(e?.message || String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const sendRequest = async () => {
     setLoading(true);
     setError("");
     setResponse(null);
+
     const started = performance.now();
+    let firstByteAt = null;
 
     try {
-      const headers = config.customHeaders.trim() ? JSON.parse(config.customHeaders) : {};
+      if (!config.url.trim()) throw new Error("Enter an API URL.");
+      if (requestBodyError) throw new Error(requestBodyError);
+
+      const targetUrl = new URL(config.url);
+      const headers = config.customHeaders.trim()
+        ? JSON.parse(config.customHeaders)
+        : {};
+
+      if (config.bodyMode === "raw" && requestBody === null) {
+        throw new Error("Raw JSON is invalid.");
+      }
+
       if (!config.useProxy && config.apiKey.trim()) {
         headers.Authorization = "Bearer " + config.apiKey.trim();
       }
 
-      const requestUrl = config.useProxy ? "/api/proxy" : config.url;
-      const requestPayload = config.useProxy
-        ? {
-            url: config.url,
-            method: config.method,
-            headers,
-            apiKey: config.apiKey,
-            body: requestBody
-          }
-        : requestBody;
+      const payload = {
+        url: targetUrl.toString(),
+        method: config.method,
+        headers,
+        apiKey: config.apiKey,
+        body: requestBody ?? {}
+      };
+
+      const requestUrl = config.useProxy ? "/api/proxy" : targetUrl.toString();
       const requestOptions = {
         method: config.useProxy ? "POST" : config.method,
         headers: config.useProxy
           ? { "Content-Type": "application/json" }
           : headers,
-        body: (config.useProxy || config.method !== "GET")
-          ? JSON.stringify(requestPayload)
-          : undefined
+        body:
+          config.useProxy || !["GET", "HEAD"].includes(config.method)
+            ? JSON.stringify(config.useProxy ? payload : requestBody ?? {})
+            : undefined
       };
 
-      if (config.stream) {
-        const res = await fetch(requestUrl, requestOptions);
+      const res = await fetch(requestUrl, requestOptions);
+
+      if (!res.ok) {
         const text = await res.text();
-        if (!res.ok) throw new Error(res.status + " " + res.statusText + "\n" + text);
+        let parsed = text;
+        try { parsed = JSON.parse(text); } catch {}
+
+        const detail =
+          typeof parsed === "string"
+            ? parsed
+            : JSON.stringify(parsed, null, 2);
+
+        throw new Error(
+          "HTTP " + res.status + " " + res.statusText +
+          "\\n\\n" + detail
+        );
+      }
+
+      if (config.stream) {
+        await readStreamingResponse(
+          res,
+          (text) => {
+            setResponse({
+              status: res.status,
+              statusText: res.statusText,
+              headers: Object.fromEntries(res.headers.entries()),
+              body: text,
+              streaming: true
+            });
+          },
+          () => {
+            firstByteAt = performance.now();
+            setElapsed(Math.round(firstByteAt - started));
+          }
+        );
+      } else {
+        const text = await res.text();
+        let parsed = text;
+        try { parsed = JSON.parse(text); } catch {}
+
         setResponse({
           status: res.status,
           statusText: res.statusText,
           headers: Object.fromEntries(res.headers.entries()),
-          body: text,
-          streaming: true
+          body: parsed,
+          streaming: false
         });
-        saveHistory({
-          time: new Date().toISOString(),
-          model: config.model,
-          url: config.url,
-          status: res.status,
-          elapsed: Math.round(performance.now() - started)
-        });
-        return;
       }
 
-      const res = await fetch(requestUrl, requestOptions);
-      const text = await res.text();
-      let parsed = text;
-      try { parsed = JSON.parse(text); } catch {}
-      if (!res.ok) {
-        const detail = typeof parsed === "string" ? parsed : JSON.stringify(parsed, null, 2);
-        if ((res.status === 401 || res.status === 403) && typeof parsed === "object" && parsed?.title === "NVIDIA inference access denied") {
-          throw new Error(
-            "NVIDIA accepted your API key for /v1/models, but rejected /v1/chat/completions. This is an NVIDIA inference-access permission issue, not a Vercel CORS problem."
-            + "\n\n" + detail
-          );
-        }
-        if (res.status === 401 || res.status === 403) {
-          throw new Error(
-            "NVIDIA rejected authentication (HTTP " + res.status + "). Run 'Test NVIDIA Key' first. If that test succeeds, the problem is inference entitlement; if it fails, the key itself is not being accepted."
-            + "\n\nUpstream response:\n" + detail
-          );
-        }
-        throw new Error(res.status + " " + res.statusText + "\n" + detail);
-      }
-      setElapsed(Math.round(performance.now() - started));
-      setResponse({
-        status: res.status,
-        statusText: res.statusText,
-        headers: Object.fromEntries(res.headers.entries()),
-        body: parsed,
-        streaming: false
-      });
+      const total = Math.round(performance.now() - started);
+      setElapsed(total);
+
       saveHistory({
         time: new Date().toISOString(),
         model: config.model,
         url: config.url,
         status: res.status,
-        elapsed: Math.round(performance.now() - started)
+        elapsed: total,
+        streamed: Boolean(config.stream)
       });
     } catch (e) {
       setElapsed(Math.round(performance.now() - started));
@@ -345,9 +497,13 @@ function App() {
 
   const reset = () => {
     setConfig({ ...DEFAULTS });
-    localStorage.setItem("fast-api-test-config", JSON.stringify(DEFAULTS));
+    sessionStorage.removeItem("fast-api-test-api-key");
+    localStorage.setItem("fast-api-test-config", JSON.stringify({ ...DEFAULTS, apiKey: "" }));
     setResponse(null);
     setError("");
+    setElapsed(0);
+    setModelSearch("");
+    setAvailableModels(NVIDIA_MODELS);
   };
 
   return (
@@ -387,143 +543,36 @@ function App() {
             <label>API key
               <input type="password" value={config.apiKey} onChange={(e) => update("apiKey", e.target.value)} placeholder="Bearer token / API key" />
             </label>
-            <label>Model
+            <label>
+              Model
+              <input
+                className="model-search"
+                value={modelSearch}
+                onChange={(e) => setModelSearch(e.target.value)}
+                placeholder="Search models…"
+              />
               <select
                 className="model-select"
-                value={NVIDIA_MODELS.includes(config.model) ? config.model : "__custom__"}
+                value={NVIDIA_MODELS.includes(config.model) || availableModels.includes(config.model) ? config.model : "__custom__"}
                 onChange={(e) => {
                   if (e.target.value !== "__custom__") update("model", e.target.value);
                 }}
               >
-              <optgroup label="01-ai">
-                <option key="01-ai/yi-large" value="01-ai/yi-large">yi-large</option>
-              </optgroup>
-              <optgroup label="adept">
-                <option key="adept/fuyu-8b" value="adept/fuyu-8b">fuyu-8b</option>
-              </optgroup>
-              <optgroup label="ai21labs">
-                <option key="ai21labs/jamba-1.5-large-instruct" value="ai21labs/jamba-1.5-large-instruct">jamba-1.5-large-instruct</option>
-              </optgroup>
-              <optgroup label="aisingapore">
-                <option key="aisingapore/sea-lion-7b-instruct" value="aisingapore/sea-lion-7b-instruct">sea-lion-7b-instruct</option>
-              </optgroup>
-              <optgroup label="bigcode">
-                <option key="bigcode/starcoder2-15b" value="bigcode/starcoder2-15b">starcoder2-15b</option>
-              </optgroup>
-              <optgroup label="databricks">
-                <option key="databricks/dbrx-instruct" value="databricks/dbrx-instruct">dbrx-instruct</option>
-              </optgroup>
-              <optgroup label="deepseek-ai">
-                <option key="deepseek-ai/deepseek-coder-6.7b-instruct" value="deepseek-ai/deepseek-coder-6.7b-instruct">deepseek-coder-6.7b-instruct</option>
-                <option key="deepseek-ai/deepseek-v4.1-flash" value="deepseek-ai/deepseek-v4.1-flash">deepseek-v4.1-flash · FREE</option>
-              </optgroup>
-              <optgroup label="google">
-                <option key="google/codegemma-1.1-7b" value="google/codegemma-1.1-7b">codegemma-1.1-7b</option>
-                <option key="google/codegemma-7b" value="google/codegemma-7b">codegemma-7b</option>
-                <option key="google/deplot" value="google/deplot">deplot</option>
-                <option key="google/diffusiongemma-26b-a4b-it" value="google/diffusiongemma-26b-a4b-it">diffusiongemma-26b-a4b-it · FREE</option>
-                <option key="google/gemma-2b" value="google/gemma-2b">gemma-2b</option>
-                <option key="google/gemma-3-12b-it" value="google/gemma-3-12b-it">gemma-3-12b-it</option>
-                <option key="google/gemma-3-4b-it" value="google/gemma-3-4b-it">gemma-3-4b-it</option>
-                <option key="google/gemma-4-31b-it" value="google/gemma-4-31b-it">gemma-4-31b-it · FREE</option>
-                <option key="google/recurrentgemma-2b" value="google/recurrentgemma-2b">recurrentgemma-2b</option>
-              </optgroup>
-              <optgroup label="ibm">
-                <option key="ibm/granite-3.0-3b-a800m-instruct" value="ibm/granite-3.0-3b-a800m-instruct">granite-3.0-3b-a800m-instruct</option>
-                <option key="ibm/granite-3.0-8b-instruct" value="ibm/granite-3.0-8b-instruct">granite-3.0-8b-instruct</option>
-                <option key="ibm/granite-34b-code-instruct" value="ibm/granite-34b-code-instruct">granite-34b-code-instruct</option>
-                <option key="ibm/granite-8b-code-instruct" value="ibm/granite-8b-code-instruct">granite-8b-code-instruct</option>
-              </optgroup>
-              <optgroup label="meta">
-                <option key="meta/codellama-70b" value="meta/codellama-70b">codellama-70b</option>
-                <option key="meta/llama-3.2-11b-vision-instruct" value="meta/llama-3.2-11b-vision-instruct">llama-3.2-11b-vision-instruct · FREE</option>
-                <option key="meta/llama-3.2-90b-vision-instruct" value="meta/llama-3.2-90b-vision-instruct">llama-3.2-90b-vision-instruct · FREE</option>
-                <option key="meta/llama-guard-4-12b" value="meta/llama-guard-4-12b">llama-guard-4-12b · FREE</option>
-                <option key="meta/llama2-70b" value="meta/llama2-70b">llama2-70b</option>
-                <option key="meta/muse-glimmer-30b" value="meta/muse-glimmer-30b">muse-glimmer-30b · FREE</option>
-              </optgroup>
-              <optgroup label="microsoft">
-                <option key="microsoft/kosmos-2" value="microsoft/kosmos-2">kosmos-2</option>
-                <option key="microsoft/phi-3-vision-128k-instruct" value="microsoft/phi-3-vision-128k-instruct">phi-3-vision-128k-instruct</option>
-                <option key="microsoft/phi-3.5-moe-instruct" value="microsoft/phi-3.5-moe-instruct">phi-3.5-moe-instruct</option>
-              </optgroup>
-              <optgroup label="mistralai">
-                <option key="mistralai/codestral-22b-instruct-v0.1" value="mistralai/codestral-22b-instruct-v0.1">codestral-22b-instruct-v0.1</option>
-                <option key="mistralai/mistral-7b-instruct-v0.3" value="mistralai/mistral-7b-instruct-v0.3">mistral-7b-instruct-v0.3</option>
-                <option key="mistralai/mistral-large" value="mistralai/mistral-large">mistral-large</option>
-                <option key="mistralai/mistral-large-2-instruct" value="mistralai/mistral-large-2-instruct">mistral-large-2-instruct</option>
-                <option key="mistralai/mistral-nemotron" value="mistralai/mistral-nemotron">mistral-nemotron · FREE</option>
-                <option key="mistralai/mixtral-8x22b-v0.1" value="mistralai/mixtral-8x22b-v0.1">mixtral-8x22b-v0.1</option>
-              </optgroup>
-              <optgroup label="moonshotai">
-                <option key="moonshotai/kimi-k2.6" value="moonshotai/kimi-k2.6">kimi-k2.6</option>
-                <option key="moonshotai/kimi-k3" value="moonshotai/kimi-k3">kimi-k3 · FREE</option>
-              </optgroup>
-              <optgroup label="nv-mistralai">
-                <option key="nv-mistralai/mistral-nemo-12b-instruct" value="nv-mistralai/mistral-nemo-12b-instruct">mistral-nemo-12b-instruct</option>
-              </optgroup>
-              <optgroup label="nvidia">
-                <option key="nvidia/ai-synthetic-video-detector" value="nvidia/ai-synthetic-video-detector">ai-synthetic-video-detector</option>
-                <option key="nvidia/cosmos-reason2-8b" value="nvidia/cosmos-reason2-8b">cosmos-reason2-8b</option>
-                <option key="nvidia/embed-qa-4" value="nvidia/embed-qa-4">embed-qa-4</option>
-                <option key="nvidia/ising-calibration-1.5-31b" value="nvidia/ising-calibration-1.5-31b">ising-calibration-1.5-31b</option>
-                <option key="nvidia/llama-3.1-nemoguard-8b-content-safety" value="nvidia/llama-3.1-nemoguard-8b-content-safety">llama-3.1-nemoguard-8b-content-safety</option>
-                <option key="nvidia/llama-3.1-nemoguard-8b-topic-control" value="nvidia/llama-3.1-nemoguard-8b-topic-control">llama-3.1-nemoguard-8b-topic-control</option>
-                <option key="nvidia/llama-3.1-nemotron-51b-instruct" value="nvidia/llama-3.1-nemotron-51b-instruct">llama-3.1-nemotron-51b-instruct</option>
-                <option key="nvidia/llama-3.1-nemotron-70b-instruct" value="nvidia/llama-3.1-nemotron-70b-instruct">llama-3.1-nemotron-70b-instruct</option>
-                <option key="nvidia/llama-3.1-nemotron-safety-guard-8b-v3" value="nvidia/llama-3.1-nemotron-safety-guard-8b-v3">llama-3.1-nemotron-safety-guard-8b-v3</option>
-                <option key="nvidia/llama-3.1-nemotron-ultra-253b-v1" value="nvidia/llama-3.1-nemotron-ultra-253b-v1">llama-3.1-nemotron-ultra-253b-v1</option>
-                <option key="nvidia/llama-3.2-nemoretriever-1b-vlm-embed-v1" value="nvidia/llama-3.2-nemoretriever-1b-vlm-embed-v1">llama-3.2-nemoretriever-1b-vlm-embed-v1</option>
-                <option key="nvidia/llama-3.2-nv-embedqa-1b-v1" value="nvidia/llama-3.2-nv-embedqa-1b-v1">llama-3.2-nv-embedqa-1b-v1</option>
-                <option key="nvidia/llama-nemotron-embed-vl-1b-v2" value="nvidia/llama-nemotron-embed-vl-1b-v2">llama-nemotron-embed-vl-1b-v2</option>
-                <option key="nvidia/llama3-chatqa-1.5-70b" value="nvidia/llama3-chatqa-1.5-70b">llama3-chatqa-1.5-70b</option>
-                <option key="nvidia/mistral-nemo-minitron-8b-8k-instruct" value="nvidia/mistral-nemo-minitron-8b-8k-instruct">mistral-nemo-minitron-8b-8k-instruct</option>
-                <option key="nvidia/nemotron-3-embed-1b" value="nvidia/nemotron-3-embed-1b">nemotron-3-embed-1b</option>
-                <option key="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning" value="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning">nemotron-3-nano-omni-30b-a3b-reasoning</option>
-                <option key="nvidia/nemotron-3-super-120b-a12b" value="nvidia/nemotron-3-super-120b-a12b">nemotron-3-super-120b-a12b · FREE</option>
-                <option key="nvidia/nemotron-3-ultra-550b-a55b" value="nvidia/nemotron-3-ultra-550b-a55b">nemotron-3-ultra-550b-a55b · FREE</option>
-                <option key="nvidia/nemotron-3.5-content-safety" value="nvidia/nemotron-3.5-content-safety">nemotron-3.5-content-safety · FREE</option>
-                <option key="nvidia/nemotron-3.5-lightning-30b-a3b" value="nvidia/nemotron-3.5-lightning-30b-a3b">nemotron-3.5-lightning-30b-a3b · FREE</option>
-                <option key="nvidia/nemotron-4-340b-instruct" value="nvidia/nemotron-4-340b-instruct">nemotron-4-340b-instruct</option>
-                <option key="nvidia/nemotron-4-340b-reward" value="nvidia/nemotron-4-340b-reward">nemotron-4-340b-reward</option>
-                <option key="nvidia/nemotron-nano-3-30b-a3b" value="nvidia/nemotron-nano-3-30b-a3b">nemotron-nano-3-30b-a3b</option>
-                <option key="nvidia/nemotron-parse" value="nvidia/nemotron-parse">nemotron-parse</option>
-                <option key="nvidia/nemotron-parse-2.0" value="nvidia/nemotron-parse-2.0">nemotron-parse-2.0</option>
-                <option key="nvidia/neva-22b" value="nvidia/neva-22b">neva-22b</option>
-                <option key="nvidia/nv-embedqa-mistral-7b-v2" value="nvidia/nv-embedqa-mistral-7b-v2">nv-embedqa-mistral-7b-v2</option>
-                <option key="nvidia/nvclip" value="nvidia/nvclip">nvclip</option>
-                <option key="nvidia/riva-translate-4b-instruct" value="nvidia/riva-translate-4b-instruct">riva-translate-4b-instruct</option>
-                <option key="nvidia/riva-translate-4b-instruct-v1.1" value="nvidia/riva-translate-4b-instruct-v1.1">riva-translate-4b-instruct-v1.1</option>
-                <option key="nvidia/riva-translate-4b-instruct-v2" value="nvidia/riva-translate-4b-instruct-v2">riva-translate-4b-instruct-v2</option>
-                <option key="nvidia/vila" value="nvidia/vila">vila</option>
-              </optgroup>
-              <optgroup label="openai">
-                <option key="openai/gpt-oss-20b" value="openai/gpt-oss-20b">gpt-oss-20b · FREE</option>
-              </optgroup>
-              <optgroup label="poolside">
-                <option key="poolside/laguna-xs-2.1" value="poolside/laguna-xs-2.1">laguna-xs-2.1 · FREE</option>
-              </optgroup>
-              <optgroup label="snowflake">
-                <option key="snowflake/arctic-embed-l" value="snowflake/arctic-embed-l">arctic-embed-l</option>
-              </optgroup>
-              <optgroup label="writer">
-                <option key="writer/palmyra-creative-122b" value="writer/palmyra-creative-122b">palmyra-creative-122b</option>
-                <option key="writer/palmyra-fin-70b-32k" value="writer/palmyra-fin-70b-32k">palmyra-fin-70b-32k</option>
-                <option key="writer/palmyra-med-70b" value="writer/palmyra-med-70b">palmyra-med-70b</option>
-                <option key="writer/palmyra-med-70b-32k" value="writer/palmyra-med-70b-32k">palmyra-med-70b-32k</option>
-              </optgroup>
-              <optgroup label="z-ai">
-                <option key="z-ai/glm-5.3" value="z-ai/glm-5.3">glm-5.3 · FREE</option>
-                <option key="z-ai/glm-5.3-flash" value="z-ai/glm-5.3-flash">glm-5.3-flash · FREE</option>
-              </optgroup>
-              <optgroup label="zyphra">
-                <option key="zyphra/zamba2-7b-instruct" value="zyphra/zamba2-7b-instruct">zamba2-7b-instruct</option>
-              </optgroup>
+                {modelGroups.map(([provider, ids]) => (
+                  <optgroup key={provider} label={provider}>
+                    {ids.map((id) => (
+                      <option key={id} value={id}>
+                        {id.split("/").slice(1).join("/")}
+                        {FREE_ENDPOINT_MODELS.has(id) ? " · FREE" : ""}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
                 <optgroup label="Other">
                   <option value="__custom__">Custom model…</option>
                 </optgroup>
               </select>
-              {!NVIDIA_MODELS.includes(config.model) && (
+              {(!NVIDIA_MODELS.includes(config.model) && !availableModels.includes(config.model)) && (
                 <input
                   value={config.model}
                   onChange={(e) => update("model", e.target.value)}
@@ -534,10 +583,34 @@ function App() {
           </div>
 
           <div className="tabs">
-            <span className="active">Message</span>
-            <span>Parameters</span>
-            <span>Headers</span>
-            <span>Advanced</span>
+            {[
+              ["message", "Message"],
+              ["parameters", "Parameters"],
+              ["headers", "Headers"],
+              ["advanced", "Advanced"]
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                className={activeTab === id ? "tab active" : "tab"}
+                onClick={() => {
+                  setActiveTab(id);
+                  document.getElementById(id + "-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div id="message-section" className="section-anchor">
+            <div className="subsection-head">
+              <strong>Request body</strong>
+              <button className="ghost small-button" onClick={refreshModels} disabled={loading}>Refresh models</button>
+            </div>
+            <div className="segmented">
+              <button className={config.bodyMode === "chat" ? "segment active" : "segment"} onClick={() => update("bodyMode", "chat")}>Chat JSON</button>
+              <button className={config.bodyMode === "raw" ? "segment active" : "segment"} onClick={() => update("bodyMode", "raw")}>Raw JSON</button>
+            </div>
           </div>
 
           <label>System message
@@ -548,7 +621,25 @@ function App() {
             <textarea className="message-box" rows="8" value={config.message} onChange={(e) => update("message", e.target.value)} placeholder="Write your message…" />
           </label>
 
-          <div className="parameter-card">
+          {config.bodyMode === "raw" ? (
+            <label>
+              Raw JSON body
+              <textarea
+                rows="12"
+                value={config.rawBody}
+                onChange={(e) => update("rawBody", e.target.value)}
+                className={requestBodyError ? "invalid" : ""}
+                placeholder='{"model":"...","messages":[{"role":"user","content":"Hello"}]}'
+              />
+              {requestBodyError && <span className="field-error">{requestBodyError}</span>}
+            </label>
+          ) : (
+            <>
+          <label id="message-section" className="visually-hidden-label">Chat fields</label>
+            </>
+          )}
+
+          <div id="parameters-section" className="section-anchor parameter-card">
             <div className="parameter-title">Generation parameters</div>
             <div className="grid four">
               <label>Temperature
@@ -571,13 +662,17 @@ function App() {
             </div>
           </div>
 
-          <div className="grid two">
+          <div id="headers-section" className="grid two">
             <label>Custom headers (JSON)
               <textarea rows="5" value={config.customHeaders} onChange={(e) => update("customHeaders", e.target.value)} />
             </label>
             <label>Extra JSON fields
               <textarea rows="5" value={config.extraJson} onChange={(e) => update("extraJson", e.target.value)} placeholder='{"some_parameter":true}' />
             </label>
+          </div>
+
+          <div id="advanced-section" className="section-anchor">
+            <div className="parameter-title">Advanced request settings</div>
           </div>
 
           <div className="request-preview">
