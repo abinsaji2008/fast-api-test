@@ -20,7 +20,9 @@ const FREE_ENDPOINT_MODELS = new Set([
   "google/gemma-4-31b-it",
   "z-ai/glm-5.3",
   "z-ai/glm-5.3-flash"
-]);\n\nconst NVIDIA_MODELS = [
+]);
+
+const NVIDIA_MODELS = [
   "01-ai/yi-large",
   "adept/fuyu-8b",
   "ai21labs/jamba-1.5-large-instruct",
@@ -379,6 +381,8 @@ function App() {
             <input value={config.url} onChange={(e) => update("url", e.target.value)} placeholder="https://api.example.com/v1/chat/completions" />
           </div>
 
+          <div className="model-note"><span className="free-badge">FREE</span> NVIDIA Build currently marks verified free-endpoint models with this label. “Free Endpoint” means the endpoint is offered without endpoint usage charges; limits may still apply.</div>
+
           <div className="grid two">
             <label>API key
               <input type="password" value={config.apiKey} onChange={(e) => update("apiKey", e.target.value)} placeholder="Bearer token / API key" />
@@ -411,17 +415,17 @@ function App() {
               </optgroup>
               <optgroup label="deepseek-ai">
                 <option key="deepseek-ai/deepseek-coder-6.7b-instruct" value="deepseek-ai/deepseek-coder-6.7b-instruct">deepseek-coder-6.7b-instruct</option>
-                <option key="deepseek-ai/deepseek-v4.1-flash" value="deepseek-ai/deepseek-v4.1-flash">deepseek-v4.1-flash</option>
+                <option key="deepseek-ai/deepseek-v4.1-flash" value="deepseek-ai/deepseek-v4.1-flash">deepseek-v4.1-flash · FREE</option>
               </optgroup>
               <optgroup label="google">
                 <option key="google/codegemma-1.1-7b" value="google/codegemma-1.1-7b">codegemma-1.1-7b</option>
                 <option key="google/codegemma-7b" value="google/codegemma-7b">codegemma-7b</option>
                 <option key="google/deplot" value="google/deplot">deplot</option>
-                <option key="google/diffusiongemma-26b-a4b-it" value="google/diffusiongemma-26b-a4b-it">diffusiongemma-26b-a4b-it</option>
+                <option key="google/diffusiongemma-26b-a4b-it" value="google/diffusiongemma-26b-a4b-it">diffusiongemma-26b-a4b-it · FREE</option>
                 <option key="google/gemma-2b" value="google/gemma-2b">gemma-2b</option>
                 <option key="google/gemma-3-12b-it" value="google/gemma-3-12b-it">gemma-3-12b-it</option>
                 <option key="google/gemma-3-4b-it" value="google/gemma-3-4b-it">gemma-3-4b-it</option>
-                <option key="google/gemma-4-31b-it" value="google/gemma-4-31b-it">gemma-4-31b-it</option>
+                <option key="google/gemma-4-31b-it" value="google/gemma-4-31b-it">gemma-4-31b-it · FREE</option>
                 <option key="google/recurrentgemma-2b" value="google/recurrentgemma-2b">recurrentgemma-2b</option>
               </optgroup>
               <optgroup label="ibm">
@@ -432,11 +436,11 @@ function App() {
               </optgroup>
               <optgroup label="meta">
                 <option key="meta/codellama-70b" value="meta/codellama-70b">codellama-70b</option>
-                <option key="meta/llama-3.2-11b-vision-instruct" value="meta/llama-3.2-11b-vision-instruct">llama-3.2-11b-vision-instruct</option>
-                <option key="meta/llama-3.2-90b-vision-instruct" value="meta/llama-3.2-90b-vision-instruct">llama-3.2-90b-vision-instruct</option>
-                <option key="meta/llama-guard-4-12b" value="meta/llama-guard-4-12b">llama-guard-4-12b</option>
+                <option key="meta/llama-3.2-11b-vision-instruct" value="meta/llama-3.2-11b-vision-instruct">llama-3.2-11b-vision-instruct · FREE</option>
+                <option key="meta/llama-3.2-90b-vision-instruct" value="meta/llama-3.2-90b-vision-instruct">llama-3.2-90b-vision-instruct · FREE</option>
+                <option key="meta/llama-guard-4-12b" value="meta/llama-guard-4-12b">llama-guard-4-12b · FREE</option>
                 <option key="meta/llama2-70b" value="meta/llama2-70b">llama2-70b</option>
-                <option key="meta/muse-glimmer-30b" value="meta/muse-glimmer-30b">muse-glimmer-30b</option>
+                <option key="meta/muse-glimmer-30b" value="meta/muse-glimmer-30b">muse-glimmer-30b · FREE</option>
               </optgroup>
               <optgroup label="microsoft">
                 <option key="microsoft/kosmos-2" value="microsoft/kosmos-2">kosmos-2</option>
@@ -448,12 +452,12 @@ function App() {
                 <option key="mistralai/mistral-7b-instruct-v0.3" value="mistralai/mistral-7b-instruct-v0.3">mistral-7b-instruct-v0.3</option>
                 <option key="mistralai/mistral-large" value="mistralai/mistral-large">mistral-large</option>
                 <option key="mistralai/mistral-large-2-instruct" value="mistralai/mistral-large-2-instruct">mistral-large-2-instruct</option>
-                <option key="mistralai/mistral-nemotron" value="mistralai/mistral-nemotron">mistral-nemotron</option>
+                <option key="mistralai/mistral-nemotron" value="mistralai/mistral-nemotron">mistral-nemotron · FREE</option>
                 <option key="mistralai/mixtral-8x22b-v0.1" value="mistralai/mixtral-8x22b-v0.1">mixtral-8x22b-v0.1</option>
               </optgroup>
               <optgroup label="moonshotai">
                 <option key="moonshotai/kimi-k2.6" value="moonshotai/kimi-k2.6">kimi-k2.6</option>
-                <option key="moonshotai/kimi-k3" value="moonshotai/kimi-k3">kimi-k3</option>
+                <option key="moonshotai/kimi-k3" value="moonshotai/kimi-k3">kimi-k3 · FREE</option>
               </optgroup>
               <optgroup label="nv-mistralai">
                 <option key="nv-mistralai/mistral-nemo-12b-instruct" value="nv-mistralai/mistral-nemo-12b-instruct">mistral-nemo-12b-instruct</option>
@@ -476,10 +480,10 @@ function App() {
                 <option key="nvidia/mistral-nemo-minitron-8b-8k-instruct" value="nvidia/mistral-nemo-minitron-8b-8k-instruct">mistral-nemo-minitron-8b-8k-instruct</option>
                 <option key="nvidia/nemotron-3-embed-1b" value="nvidia/nemotron-3-embed-1b">nemotron-3-embed-1b</option>
                 <option key="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning" value="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning">nemotron-3-nano-omni-30b-a3b-reasoning</option>
-                <option key="nvidia/nemotron-3-super-120b-a12b" value="nvidia/nemotron-3-super-120b-a12b">nemotron-3-super-120b-a12b</option>
-                <option key="nvidia/nemotron-3-ultra-550b-a55b" value="nvidia/nemotron-3-ultra-550b-a55b">nemotron-3-ultra-550b-a55b</option>
-                <option key="nvidia/nemotron-3.5-content-safety" value="nvidia/nemotron-3.5-content-safety">nemotron-3.5-content-safety</option>
-                <option key="nvidia/nemotron-3.5-lightning-30b-a3b" value="nvidia/nemotron-3.5-lightning-30b-a3b">nemotron-3.5-lightning-30b-a3b</option>
+                <option key="nvidia/nemotron-3-super-120b-a12b" value="nvidia/nemotron-3-super-120b-a12b">nemotron-3-super-120b-a12b · FREE</option>
+                <option key="nvidia/nemotron-3-ultra-550b-a55b" value="nvidia/nemotron-3-ultra-550b-a55b">nemotron-3-ultra-550b-a55b · FREE</option>
+                <option key="nvidia/nemotron-3.5-content-safety" value="nvidia/nemotron-3.5-content-safety">nemotron-3.5-content-safety · FREE</option>
+                <option key="nvidia/nemotron-3.5-lightning-30b-a3b" value="nvidia/nemotron-3.5-lightning-30b-a3b">nemotron-3.5-lightning-30b-a3b · FREE</option>
                 <option key="nvidia/nemotron-4-340b-instruct" value="nvidia/nemotron-4-340b-instruct">nemotron-4-340b-instruct</option>
                 <option key="nvidia/nemotron-4-340b-reward" value="nvidia/nemotron-4-340b-reward">nemotron-4-340b-reward</option>
                 <option key="nvidia/nemotron-nano-3-30b-a3b" value="nvidia/nemotron-nano-3-30b-a3b">nemotron-nano-3-30b-a3b</option>
@@ -494,10 +498,10 @@ function App() {
                 <option key="nvidia/vila" value="nvidia/vila">vila</option>
               </optgroup>
               <optgroup label="openai">
-                <option key="openai/gpt-oss-20b" value="openai/gpt-oss-20b">gpt-oss-20b</option>
+                <option key="openai/gpt-oss-20b" value="openai/gpt-oss-20b">gpt-oss-20b · FREE</option>
               </optgroup>
               <optgroup label="poolside">
-                <option key="poolside/laguna-xs-2.1" value="poolside/laguna-xs-2.1">laguna-xs-2.1</option>
+                <option key="poolside/laguna-xs-2.1" value="poolside/laguna-xs-2.1">laguna-xs-2.1 · FREE</option>
               </optgroup>
               <optgroup label="snowflake">
                 <option key="snowflake/arctic-embed-l" value="snowflake/arctic-embed-l">arctic-embed-l</option>
@@ -509,8 +513,8 @@ function App() {
                 <option key="writer/palmyra-med-70b-32k" value="writer/palmyra-med-70b-32k">palmyra-med-70b-32k</option>
               </optgroup>
               <optgroup label="z-ai">
-                <option key="z-ai/glm-5.3" value="z-ai/glm-5.3">glm-5.3</option>
-                <option key="z-ai/glm-5.3-flash" value="z-ai/glm-5.3-flash">glm-5.3-flash</option>
+                <option key="z-ai/glm-5.3" value="z-ai/glm-5.3">glm-5.3 · FREE</option>
+                <option key="z-ai/glm-5.3-flash" value="z-ai/glm-5.3-flash">glm-5.3-flash · FREE</option>
               </optgroup>
               <optgroup label="zyphra">
                 <option key="zyphra/zamba2-7b-instruct" value="zyphra/zamba2-7b-instruct">zamba2-7b-instruct</option>
