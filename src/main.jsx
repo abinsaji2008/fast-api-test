@@ -138,9 +138,15 @@ function App() {
       try { parsed = JSON.parse(text); } catch {}
       if (!res.ok) {
         const detail = typeof parsed === "string" ? parsed : JSON.stringify(parsed, null, 2);
+        if ((res.status === 401 || res.status === 403) && typeof parsed === "object" && parsed?.title === "NVIDIA inference access denied") {
+          throw new Error(
+            "NVIDIA accepted your API key for /v1/models, but rejected /v1/chat/completions. This is an NVIDIA inference-access permission issue, not a Vercel CORS problem."
+            + "\n\n" + detail
+          );
+        }
         if (res.status === 401 || res.status === 403) {
           throw new Error(
-            "NVIDIA rejected the API key (HTTP " + res.status + "). Check that your NVIDIA Build API key is valid, active, and copied without extra quotes/spaces. If you pasted \"Bearer nvapi-...\", that format is accepted."
+            "NVIDIA rejected authentication (HTTP " + res.status + "). Run 'Test NVIDIA Key' first. If that test succeeds, the problem is inference entitlement; if it fails, the key itself is not being accepted."
             + "\n\nUpstream response:\n" + detail
           );
         }
@@ -160,6 +166,61 @@ function App() {
         url: config.url,
         status: res.status,
         elapsed: Math.round(performance.now() - started)
+      });
+    } catch (e) {
+      setElapsed(Math.round(performance.now() - started));
+      setError(e?.message || String(e));
+    } finally {
+      setLoading(false);
+      sessionStorage.setItem("fast-api-test-api-key", config.apiKey || "");
+      persist(config);
+    }
+  };
+
+  const testNvidiaKey = async () => {
+    setLoading(true);
+    setError("");
+    setResponse(null);
+    const started = performance.now();
+
+    try {
+      if (!config.apiKey.trim()) {
+        throw new Error("Enter your NVIDIA API key first.");
+      }
+
+      const res = await fetch("/api/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: "https://integrate.api.nvidia.com/v1/models",
+          method: "GET",
+          apiKey: config.apiKey,
+          headers: {}
+        })
+      });
+
+      const text = await res.text();
+      let parsed = text;
+      try { parsed = JSON.parse(text); } catch {}
+
+      if (!res.ok) {
+        const detail = typeof parsed === "string" ? parsed : JSON.stringify(parsed, null, 2);
+        throw new Error("NVIDIA key test failed (HTTP " + res.status + ").\n\n" + detail);
+      }
+
+      const count = Array.isArray(parsed?.data) ? parsed.data.length : "available";
+      setElapsed(Math.round(performance.now() - started));
+      setResponse({
+        status: res.status,
+        statusText: res.statusText,
+        headers: Object.fromEntries(res.headers.entries()),
+        body: {
+          ok: true,
+          message: "NVIDIA accepted the API key for the model catalog.",
+          models: count,
+          next_step: "Test a chat completion. If chat returns 401/403 while this succeeds, the account/key likely lacks Public API Endpoints inference permission."
+        },
+        streaming: false
       });
     } catch (e) {
       setElapsed(Math.round(performance.now() - started));
@@ -196,6 +257,7 @@ function App() {
         </div>
         <div className="top-actions">
           <button className="ghost" onClick={reset}>Reset</button>
+          <button className="ghost" onClick={testNvidiaKey} disabled={loading}>Test NVIDIA Key</button>
           <button className="ghost" onClick={() => navigator.clipboard.writeText(JSON.stringify(requestBody, null, 2))}>Copy JSON</button>
           <button className="primary" onClick={sendRequest} disabled={loading}>
             {loading ? "Sending…" : "Send Request"}
