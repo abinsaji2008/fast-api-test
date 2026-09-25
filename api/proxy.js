@@ -131,13 +131,44 @@ export default async function handler(req, res) {
       }
     }
 
-    const upstream = await fetch(target, {
+    const requestBody = ["GET", "HEAD"].includes(String(method).toUpperCase())
+      ? undefined
+      : JSON.stringify(body ?? {});
+
+    let upstream = await fetch(target, {
       method,
       headers: safeHeaders,
-      body: ["GET", "HEAD"].includes(String(method).toUpperCase())
-        ? undefined
-        : JSON.stringify(body ?? {})
+      body: requestBody,
+      redirect: "manual"
     });
+
+    // Some upstream infrastructure may redirect. Preserve NVIDIA authentication
+    // only when the redirect remains within NVIDIA's API infrastructure.
+    if (upstream.status >= 300 && upstream.status < 400) {
+      const location = upstream.headers.get("location");
+
+      if (location) {
+        const redirected = new URL(location, target);
+
+        const allowedRedirect =
+          redirected.hostname === "integrate.api.nvidia.com" ||
+          redirected.hostname.endsWith(".api.nvidia.com");
+
+        if (!allowedRedirect) {
+          return res.status(502).json({
+            error: "Unsafe upstream redirect",
+            location: redirected.origin
+          });
+        }
+
+        upstream = await fetch(redirected, {
+          method,
+          headers: safeHeaders,
+          body: requestBody,
+          redirect: "manual"
+        });
+      }
+    }
 
     const contentType = upstream.headers.get("content-type") || "text/plain; charset=utf-8";
     res.statusCode = upstream.status;
