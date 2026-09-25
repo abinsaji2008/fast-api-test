@@ -13,7 +13,10 @@ function normalizeApiKey(value) {
   }
 
   // Accept either a raw key or "Bearer <key>".
-  key = key.replace(/^Bearer\s+/i, "").trim();
+  key = key
+    .replace(/^Bearer\s+/i, "")
+    .replace(/[\u0000-\u001F\u007F\u200B-\u200D\uFEFF]/g, "")
+    .trim();
 
   return key;
 }
@@ -80,43 +83,52 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Private/internal target URLs are not allowed" });
     }
 
+    const normalizedKey = normalizeApiKey(apiKey);
+    const isNvidia = target.hostname === "integrate.api.nvidia.com";
+
     const safeHeaders = {};
 
-    for (const [key, value] of Object.entries(headers || {})) {
-      const lower = String(key).toLowerCase();
+    if (isNvidia) {
+      // NVIDIA: send only the headers required by its OpenAI-compatible API.
+      safeHeaders.Accept = "application/json";
+      safeHeaders["Content-Type"] = "application/json";
+      if (normalizedKey) {
+        safeHeaders.Authorization = `Bearer ${normalizedKey}`;
+      }
+    } else {
+      for (const [key, value] of Object.entries(headers || {})) {
+        const lower = String(key).toLowerCase();
+
+        if (
+          ["host", "content-length", "connection", "transfer-encoding"].includes(lower)
+        ) {
+          continue;
+        }
+
+        if (lower === "authorization" && normalizedKey) {
+          continue;
+        }
+
+        if (typeof value === "string") {
+          safeHeaders[key] = value;
+        }
+      }
+
+      if (normalizedKey) {
+        safeHeaders.Authorization = `Bearer ${normalizedKey}`;
+      }
+
+      if (!safeHeaders.Accept) {
+        safeHeaders.Accept = "application/json";
+      }
 
       if (
-        ["host", "content-length", "connection", "transfer-encoding"].includes(lower)
+        !["GET", "HEAD"].includes(String(method).toUpperCase()) &&
+        !safeHeaders["Content-Type"] &&
+        !safeHeaders["content-type"]
       ) {
-        continue;
+        safeHeaders["Content-Type"] = "application/json";
       }
-
-      // Never let a stale browser header override the explicit API-key field.
-      if (lower === "authorization" && normalizeApiKey(apiKey)) {
-        continue;
-      }
-
-      if (typeof value === "string") {
-        safeHeaders[key] = value;
-      }
-    }
-
-    const normalizedKey = normalizeApiKey(apiKey);
-
-    if (normalizedKey) {
-      safeHeaders.Authorization = `Bearer ${normalizedKey}`;
-    }
-
-    if (!safeHeaders.Accept) {
-      safeHeaders.Accept = "application/json";
-    }
-
-    if (
-      !["GET", "HEAD"].includes(String(method).toUpperCase()) &&
-      !safeHeaders["Content-Type"] &&
-      !safeHeaders["content-type"]
-    ) {
-      safeHeaders["Content-Type"] = "application/json";
     }
 
     const upstream = await fetch(target, {
