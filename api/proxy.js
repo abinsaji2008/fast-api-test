@@ -273,20 +273,20 @@ export default async function handler(req, res) {
       return await finishUpstreamResponse(
         redirectedResponse,
         res,
-        contentType,
         isNvidia,
         normalizedKey,
-        started
+        started,
+        Boolean(body?.stream)
       );
     }
 
     return await finishUpstreamResponse(
       upstream,
       res,
-      contentType,
       isNvidia,
       normalizedKey,
-      started
+      started,
+      Boolean(body?.stream)
     );
   } catch (error) {
     return sendJson(res, 502, {
@@ -302,11 +302,14 @@ export default async function handler(req, res) {
 async function finishUpstreamResponse(
   upstream,
   res,
-  contentType,
   isNvidia,
   normalizedKey,
-  started
+  started,
+  requestedStream = false
 ) {
+  const contentType =
+    upstream.headers.get("content-type") || "application/json; charset=utf-8";
+
   res.statusCode = upstream.status;
   res.setHeader("Content-Type", contentType);
   res.setHeader("X-Proxy-Duration-Ms", String(Date.now() - started));
@@ -348,7 +351,11 @@ async function finishUpstreamResponse(
   }
 
   // Stream SSE/chunked responses without buffering.
-  if (contentType.includes("text/event-stream") || contentType.includes("application/x-ndjson")) {
+  if (
+    requestedStream ||
+    contentType.includes("text/event-stream") ||
+    contentType.includes("application/x-ndjson")
+  ) {
     if (!upstream.body) return res.end();
 
     const reader = upstream.body.getReader();
