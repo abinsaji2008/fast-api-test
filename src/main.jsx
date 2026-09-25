@@ -16,13 +16,14 @@ const DEFAULTS = {
   enableThinking: true,
   stream: false,
   customHeaders: '{"Content-Type":"application/json","Accept":"application/json"}',
-  extraJson: ""
+  extraJson: "",
+  useProxy: true
 };
 
 function App() {
   const [config, setConfig] = useState(() => {
     try {
-      return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("fast-api-test-config") || "{}") };
+      return { ...DEFAULTS, useProxy: true, ...JSON.parse(localStorage.getItem("fast-api-test-config") || "{}") };
     } catch {
       return { ...DEFAULTS };
     }
@@ -82,12 +83,22 @@ function App() {
       const headers = config.customHeaders.trim() ? JSON.parse(config.customHeaders) : {};
       if (config.apiKey.trim()) headers.Authorization = "Bearer " + config.apiKey.trim();
 
+      const requestUrl = config.useProxy ? "/api/proxy" : config.url;
+      const requestPayload = config.useProxy
+        ? { url: config.url, method: config.method, headers, body: requestBody }
+        : requestBody;
+      const requestOptions = {
+        method: config.useProxy ? "POST" : config.method,
+        headers: config.useProxy
+          ? { "Content-Type": "application/json" }
+          : headers,
+        body: (config.useProxy || config.method !== "GET")
+          ? JSON.stringify(requestPayload)
+          : undefined
+      };
+
       if (config.stream) {
-        const res = await fetch(config.url, {
-          method: config.method,
-          headers,
-          body: config.method === "GET" ? undefined : JSON.stringify(requestBody)
-        });
+        const res = await fetch(requestUrl, requestOptions);
         const text = await res.text();
         if (!res.ok) throw new Error(res.status + " " + res.statusText + "\n" + text);
         setResponse({
@@ -107,11 +118,7 @@ function App() {
         return;
       }
 
-      const res = await fetch(config.url, {
-        method: config.method,
-        headers,
-        body: config.method === "GET" ? undefined : JSON.stringify(requestBody)
-      });
+      const res = await fetch(requestUrl, requestOptions);
       const text = await res.text();
       let parsed = text;
       try { parsed = JSON.parse(text); } catch {}
@@ -227,6 +234,7 @@ function App() {
               </label>
             </div>
             <div className="toggle-row">
+              <label className="switch-label"><input type="checkbox" checked={config.useProxy} onChange={(e) => update("useProxy", e.target.checked)} /><span>Use Vercel proxy</span></label>
               <label className="switch-label"><input type="checkbox" checked={config.enableThinking} onChange={(e) => update("enableThinking", e.target.checked)} /><span>Enable thinking</span></label>
               <label className="switch-label"><input type="checkbox" checked={config.stream} onChange={(e) => update("stream", e.target.checked)} /><span>Stream response</span></label>
             </div>
@@ -288,7 +296,7 @@ function App() {
           </div>
         </section>
       </main>
-      <footer>Fast API Test · Requests run from your browser. API keys are kept in this browser session/local storage and are sent directly to the configured endpoint.</footer>
+      <footer>Fast API Test · Vercel proxy keeps browser CORS out of the request path. API keys are sent to the proxy and forwarded to the configured endpoint.</footer>
     </div>
   );
 }
