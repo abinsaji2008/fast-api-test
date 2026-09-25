@@ -88,7 +88,13 @@ globalThis.fetch = async (url, options = {}) => {
 {
   calls = [];
   globalThis.fetch = async (url, options = {}) => {
-    calls.push({ url: String(url), options });
+    calls.push({
+      url: String(url),
+      options: {
+        ...options,
+        headers: Object.fromEntries(new Headers(options.headers).entries())
+      }
+    });
     if (String(url).endsWith("/v1/models")) {
       return jsonResponse(200, { object: "list", data: [{ id: "model-1" }] });
     }
