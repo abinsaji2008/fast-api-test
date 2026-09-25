@@ -185,6 +185,7 @@ function App() {
   const [activeTab, setActiveTab] = useState("message");
   const [modelSearch, setModelSearch] = useState("");
   const [availableModels, setAvailableModels] = useState(NVIDIA_MODELS);
+  const requestControllerRef = React.useRef(null);
 
   const update = (key, value) => setConfig((c) => ({ ...c, [key]: value }));
 
@@ -263,7 +264,7 @@ function App() {
 
     try {
       const target = new URL(config.url);
-      target.pathname = target.pathname.replace(/\\/chat\\/completions\\/?$/, "/models");
+      target.pathname = target.pathname.replace(/\/chat\/completions\/?$/, "/models");
       if (!target.pathname.endsWith("/models")) {
         throw new Error("Model refresh expects an OpenAI-compatible /v1/chat/completions URL.");
       }
@@ -289,7 +290,7 @@ function App() {
       try { parsed = JSON.parse(text); } catch { parsed = null; }
 
       if (!res.ok) {
-        throw new Error("Model refresh failed (HTTP " + res.status + ")\\n\\n" + (parsed ? JSON.stringify(parsed, null, 2) : text));
+        throw new Error("Model refresh failed (HTTP " + res.status + ")\n\n" + (parsed ? JSON.stringify(parsed, null, 2) : text));
       }
 
       const ids = Array.isArray(parsed?.data)
@@ -319,8 +320,13 @@ function App() {
     }
   };
 
+  const cancelRequest = () => {
+    requestControllerRef.current?.abort();
+  };
+
   const sendRequest = async () => {
     setLoading(true);
+    requestControllerRef.current = new AbortController();
     setError("");
     setResponse(null);
 
@@ -364,7 +370,21 @@ function App() {
             : undefined
       };
 
-      const res = await fetch(requestUrl, requestOptions);
+      const requestOptionsWithSignal = {
+        ...requestOptions,
+        signal: requestControllerRef.current.signal
+      };
+
+      const timeoutId = setTimeout(() => {
+        requestControllerRef.current?.abort();
+      }, 285000);
+
+      let res;
+      try {
+        res = await fetch(requestUrl, requestOptionsWithSignal);
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (!res.ok) {
         const text = await res.text();
@@ -426,9 +446,14 @@ function App() {
       });
     } catch (e) {
       setElapsed(Math.round(performance.now() - started));
-      setError(e?.message || String(e));
+      setError(
+        e?.name === "AbortError"
+          ? "Request cancelled or timed out after 285 seconds."
+          : (e?.message || String(e))
+      );
     } finally {
       setLoading(false);
+      requestControllerRef.current = null;
       sessionStorage.setItem("fast-api-test-api-key", config.apiKey || "");
       persist(config);
     }
@@ -520,8 +545,11 @@ function App() {
           <button className="ghost" onClick={reset}>Reset</button>
           <button className="ghost" onClick={testNvidiaKey} disabled={loading}>Test NVIDIA Key</button>
           <button className="ghost" onClick={() => navigator.clipboard.writeText(JSON.stringify(requestBody, null, 2))}>Copy JSON</button>
-          <button className="primary" onClick={sendRequest} disabled={loading}>
-            {loading ? "Sending…" : "Send Request"}
+          <button
+            className={loading ? "danger" : "primary"}
+            onClick={loading ? cancelRequest : sendRequest}
+          >
+            {loading ? "Stop Request" : "Send Request"}
           </button>
         </div>
       </header>
