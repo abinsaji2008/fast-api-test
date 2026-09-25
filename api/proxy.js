@@ -86,7 +86,15 @@ async function assertPublicTarget(target) {
 
 function parseIncomingBody(req) {
   if (req.body && typeof req.body === "object") return req.body;
-  if (typeof req.body === "string") return JSON.parse(req.body);
+  if (typeof req.body === "string") {
+    try {
+      return JSON.parse(req.body);
+    } catch {
+      const error = new Error("Request body is not valid JSON.");
+      error.code = "INVALID_JSON";
+      throw error;
+    }
+  }
   return {};
 }
 
@@ -141,7 +149,11 @@ export default async function handler(req, res) {
     });
   }
 
-  if (parseContentLength(req) > MAX_BODY_BYTES) {
+  const declaredLength = parseContentLength(req);
+  const actualStringLength =
+    typeof req.body === "string" ? Buffer.byteLength(req.body) : 0;
+
+  if (Math.max(declaredLength, actualStringLength) > MAX_BODY_BYTES) {
     return sendJson(res, 413, {
       error: "PAYLOAD_TOO_LARGE",
       message: "Request payload exceeds the 2 MB proxy limit."
@@ -156,6 +168,14 @@ export default async function handler(req, res) {
 
   try {
     const incoming = parseIncomingBody(req);
+
+    if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) {
+      return sendJson(res, 400, {
+        error: "INVALID_REQUEST",
+        message: "The proxy request must be a JSON object."
+      });
+    }
+
     const {
       url,
       method = "POST",
@@ -193,12 +213,27 @@ export default async function handler(req, res) {
     normalizedKey = normalizeApiKey(apiKey);
     isNvidia = target.hostname === "integrate.api.nvidia.com";
 
+    if (!headers || typeof headers !== "object" || Array.isArray(headers)) {
+      return sendJson(res, 400, {
+        error: "INVALID_HEADERS",
+        message: "The headers field must be a JSON object."
+      });
+    }
+
+    if (isNvidia && !normalizedKey) {
+      return sendJson(res, 400, {
+        error: "MISSING_API_KEY",
+        message: "An NVIDIA API key is required for integrate.api.nvidia.com."
+      });
+    }
+
     const safeHeaders = copySafeHeaders(headers);
 
     if (isNvidia) {
       // NVIDIA uses a normal Bearer token on the OpenAI-compatible API.
-      delete safeHeaders.Authorization;
-      delete safeHeaders.authorization;
+      for (const key of Object.keys(safeHeaders)) {
+        if (key.toLowerCase() === "authorization") delete safeHeaders[key];
+      }
       safeHeaders.Accept = safeHeaders.Accept || "application/json";
       safeHeaders["Content-Type"] = "application/json";
 
@@ -207,9 +242,10 @@ export default async function handler(req, res) {
       }
     } else {
       if (normalizedKey) {
-        delete safeHeaders.Authorization;
-        delete safeHeaders.authorization;
-        safeHeaders.Authorization = `Bearer ${normalizedKey}`;
+        for (const key of Object.keys(safeHeaders)) {
+          if (key.toLowerCase() === "authorization") delete safeHeaders[key];
+        }
+        safeHeaders.Authorization = "Bearer " + normalizedKey;
       }
 
       if (!safeHeaders.Accept) {
@@ -289,8 +325,9 @@ export default async function handler(req, res) {
       Boolean(body?.stream)
     );
   } catch (error) {
-    return sendJson(res, 502, {
-      error: "PROXY_ERROR",
+    const invalidJson = error?.code === "INVALID_JSON";
+    return sendJson(res, invalidJson ? 400 : 502, {
+      error: invalidJson ? "INVALID_JSON" : "PROXY_ERROR",
       message: error instanceof Error ? error.message : String(error),
       target: target?.origin || null,
       method: targetMethod,
