@@ -23,7 +23,12 @@ const DEFAULTS = {
 function App() {
   const [config, setConfig] = useState(() => {
     try {
-      return { ...DEFAULTS, useProxy: true, ...JSON.parse(localStorage.getItem("fast-api-test-config") || "{}") };
+      return {
+        ...DEFAULTS,
+        useProxy: true,
+        ...JSON.parse(localStorage.getItem("fast-api-test-config") || "{}"),
+        apiKey: sessionStorage.getItem("fast-api-test-api-key") || ""
+      };
     } catch {
       return { ...DEFAULTS };
     }
@@ -64,7 +69,8 @@ function App() {
   }, [config]);
 
   const persist = (next) => {
-    localStorage.setItem("fast-api-test-config", JSON.stringify(next));
+    const safeConfig = { ...next, apiKey: "" };
+    localStorage.setItem("fast-api-test-config", JSON.stringify(safeConfig));
   };
 
   const saveHistory = (entry) => {
@@ -81,11 +87,19 @@ function App() {
 
     try {
       const headers = config.customHeaders.trim() ? JSON.parse(config.customHeaders) : {};
-      if (config.apiKey.trim()) headers.Authorization = "Bearer " + config.apiKey.trim();
+      if (!config.useProxy && config.apiKey.trim()) {
+        headers.Authorization = "Bearer " + config.apiKey.trim();
+      }
 
       const requestUrl = config.useProxy ? "/api/proxy" : config.url;
       const requestPayload = config.useProxy
-        ? { url: config.url, method: config.method, headers, body: requestBody }
+        ? {
+            url: config.url,
+            method: config.method,
+            headers,
+            apiKey: config.apiKey,
+            body: requestBody
+          }
         : requestBody;
       const requestOptions = {
         method: config.useProxy ? "POST" : config.method,
@@ -152,6 +166,7 @@ function App() {
       setError(e?.message || String(e));
     } finally {
       setLoading(false);
+      sessionStorage.setItem("fast-api-test-api-key", config.apiKey || "");
       persist(config);
     }
   };
