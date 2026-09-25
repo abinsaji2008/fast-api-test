@@ -518,6 +518,38 @@ function App() {
     }
   };
 
+  const copyCurl = async () => {
+    const headers = config.customHeaders.trim()
+      ? JSON.parse(config.customHeaders)
+      : {};
+    const finalHeaders = { ...headers };
+    if (config.apiKey.trim()) {
+      finalHeaders.Authorization = "Bearer " + config.apiKey.trim();
+    }
+
+    const parts = [
+      "curl",
+      "-X", config.method,
+      JSON.stringify(config.url)
+    ];
+
+    for (const [key, value] of Object.entries(finalHeaders)) {
+      parts.push("-H", JSON.stringify(key + ": " + value));
+    }
+
+    if (!["GET", "HEAD"].includes(config.method)) {
+      parts.push("--data-raw", JSON.stringify(JSON.stringify(requestBody ?? {})));
+    }
+
+    await navigator.clipboard.writeText(parts.join(" "));
+  };
+
+  const clearResponse = () => {
+    setResponse(null);
+    setError("");
+    setElapsed(0);
+  };
+
   const copyResponse = async () => {
     if (!response) return;
     const value = typeof response.body === "string" ? response.body : JSON.stringify(response.body, null, 2);
@@ -550,6 +582,7 @@ function App() {
           {isNvidiaEndpoint && (
             <button className="ghost" onClick={testNvidiaKey} disabled={loading}>Test NVIDIA Key</button>
           )}
+          <button className="ghost" onClick={copyCurl}>Copy cURL</button>
           <button className="ghost" onClick={() => navigator.clipboard.writeText(JSON.stringify(requestBody, null, 2))}>Copy JSON</button>
           <button
             className={loading ? "danger" : "primary"}
@@ -724,7 +757,10 @@ function App() {
                 {response ? <><span className="status">{response.status} {response.statusText}</span><span>{elapsed} ms</span></> : <span>Send a request to see the response</span>}
               </div>
             </div>
-            <button className="ghost" onClick={copyResponse} disabled={!response}>Copy</button>
+            <div className="response-actions">
+              <button className="ghost" onClick={clearResponse} disabled={!response && !error}>Clear</button>
+              <button className="ghost" onClick={copyResponse} disabled={!response}>Copy</button>
+            </div>
           </div>
 
           {error && <div className="error-box"><strong>Request failed</strong><pre>{error}</pre></div>}
