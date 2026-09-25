@@ -95,6 +95,68 @@ globalThis.fetch = async (url, options = {}) => {
         headers: Object.fromEntries(new Headers(options.headers).entries())
       }
     });
+    return jsonResponse(200, { ok: true });
+  };
+
+  const res = makeResponse();
+  await handler(
+    makeReq({
+      url: "https://integrate.api.nvidia.com/v1/chat/completions",
+      method: "POST",
+      apiKey: "nvapi-test",
+      headers: { AUTHORIZATION: "Bearer WRONG" },
+      body: { model: "model-1", messages: [{ role: "user", content: "hi" }] }
+    }),
+    res
+  );
+
+  assert.equal(res.statusCode, 200);
+  const upstream = calls.find((c) => c.url.includes("/chat/completions"));
+  assert.equal(upstream.options.headers.authorization, "Bearer nvapi-test");
+}
+
+{
+  const res = makeResponse();
+  await handler(
+    makeReq({
+      url: "https://integrate.api.nvidia.com/v1/chat/completions",
+      method: "POST",
+      apiKey: "",
+      headers: {},
+      body: { model: "model-1", messages: [{ role: "user", content: "hi" }] }
+    }),
+    res
+  );
+
+  assert.equal(res.statusCode, 400);
+  assert.match(res.body, /MISSING_API_KEY/);
+}
+
+{
+  const res = makeResponse();
+  await handler(
+    {
+      method: "POST",
+      headers: { "content-length": "10" },
+      body: "{not-json"
+    },
+    res
+  );
+
+  assert.equal(res.statusCode, 400);
+  assert.match(res.body, /INVALID_JSON/);
+}
+
+{
+  calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({
+      url: String(url),
+      options: {
+        ...options,
+        headers: Object.fromEntries(new Headers(options.headers).entries())
+      }
+    });
     if (String(url).endsWith("/v1/models")) {
       return jsonResponse(200, { object: "list", data: [{ id: "model-1" }] });
     }
