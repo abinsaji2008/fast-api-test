@@ -94,3 +94,5 @@ footer { padding:12px 22px 18px; text-align:center; color:#58657a; font-size:11p
 .field-error { color:#ff97a7; font-size:11px; margin-top:-8px; margin-bottom:10px; }
 .danger { border-color:#7b303d; background:#32131a; color:#ffabb8; font-weight:700; }
 .response-body pre { min-height:100%; }
+
+.response-actions { display:flex; gap:7px; align-items:center; }
