@@ -2,6 +2,91 @@ import React, { useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
+const NVIDIA_MODELS = [
+  "01-ai/yi-large",
+  "adept/fuyu-8b",
+  "ai21labs/jamba-1.5-large-instruct",
+  "aisingapore/sea-lion-7b-instruct",
+  "bigcode/starcoder2-15b",
+  "databricks/dbrx-instruct",
+  "deepseek-ai/deepseek-coder-6.7b-instruct",
+  "deepseek-ai/deepseek-v4.1-flash",
+  "google/codegemma-1.1-7b",
+  "google/codegemma-7b",
+  "google/deplot",
+  "google/diffusiongemma-26b-a4b-it",
+  "google/gemma-2b",
+  "google/gemma-3-12b-it",
+  "google/gemma-3-4b-it",
+  "google/gemma-4-31b-it",
+  "google/recurrentgemma-2b",
+  "ibm/granite-3.0-3b-a800m-instruct",
+  "ibm/granite-3.0-8b-instruct",
+  "ibm/granite-34b-code-instruct",
+  "ibm/granite-8b-code-instruct",
+  "meta/codellama-70b",
+  "meta/llama-3.2-11b-vision-instruct",
+  "meta/llama-3.2-90b-vision-instruct",
+  "meta/llama-guard-4-12b",
+  "meta/llama2-70b",
+  "meta/muse-glimmer-30b",
+  "microsoft/kosmos-2",
+  "microsoft/phi-3-vision-128k-instruct",
+  "microsoft/phi-3.5-moe-instruct",
+  "mistralai/codestral-22b-instruct-v0.1",
+  "mistralai/mistral-7b-instruct-v0.3",
+  "mistralai/mistral-large",
+  "mistralai/mistral-large-2-instruct",
+  "mistralai/mistral-nemotron",
+  "mistralai/mixtral-8x22b-v0.1",
+  "moonshotai/kimi-k2.6",
+  "moonshotai/kimi-k3",
+  "nv-mistralai/mistral-nemo-12b-instruct",
+  "nvidia/ai-synthetic-video-detector",
+  "nvidia/cosmos-reason2-8b",
+  "nvidia/embed-qa-4",
+  "nvidia/ising-calibration-1.5-31b",
+  "nvidia/llama-3.1-nemoguard-8b-content-safety",
+  "nvidia/llama-3.1-nemoguard-8b-topic-control",
+  "nvidia/llama-3.1-nemotron-51b-instruct",
+  "nvidia/llama-3.1-nemotron-70b-instruct",
+  "nvidia/llama-3.1-nemotron-safety-guard-8b-v3",
+  "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+  "nvidia/llama-3.2-nemoretriever-1b-vlm-embed-v1",
+  "nvidia/llama-3.2-nv-embedqa-1b-v1",
+  "nvidia/llama-nemotron-embed-vl-1b-v2",
+  "nvidia/llama3-chatqa-1.5-70b",
+  "nvidia/mistral-nemo-minitron-8b-8k-instruct",
+  "nvidia/nemotron-3-embed-1b",
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+  "nvidia/nemotron-3-super-120b-a12b",
+  "nvidia/nemotron-3-ultra-550b-a55b",
+  "nvidia/nemotron-3.5-content-safety",
+  "nvidia/nemotron-3.5-lightning-30b-a3b",
+  "nvidia/nemotron-4-340b-instruct",
+  "nvidia/nemotron-4-340b-reward",
+  "nvidia/nemotron-nano-3-30b-a3b",
+  "nvidia/nemotron-parse",
+  "nvidia/nemotron-parse-2.0",
+  "nvidia/neva-22b",
+  "nvidia/nv-embedqa-mistral-7b-v2",
+  "nvidia/nvclip",
+  "nvidia/riva-translate-4b-instruct",
+  "nvidia/riva-translate-4b-instruct-v1.1",
+  "nvidia/riva-translate-4b-instruct-v2",
+  "nvidia/vila",
+  "openai/gpt-oss-20b",
+  "poolside/laguna-xs-2.1",
+  "snowflake/arctic-embed-l",
+  "writer/palmyra-creative-122b",
+  "writer/palmyra-fin-70b-32k",
+  "writer/palmyra-med-70b",
+  "writer/palmyra-med-70b-32k",
+  "z-ai/glm-5.3",
+  "z-ai/glm-5.3-flash",
+  "zyphra/zamba2-7b-instruct"
+];
+
 const DEFAULTS = {
   method: "POST",
   url: "https://integrate.api.nvidia.com/v1/chat/completions",
@@ -281,7 +366,148 @@ function App() {
               <input type="password" value={config.apiKey} onChange={(e) => update("apiKey", e.target.value)} placeholder="Bearer token / API key" />
             </label>
             <label>Model
-              <input value={config.model} onChange={(e) => update("model", e.target.value)} placeholder="Model ID" />
+              <select
+                className="model-select"
+                value={NVIDIA_MODELS.includes(config.model) ? config.model : "__custom__"}
+                onChange={(e) => {
+                  if (e.target.value !== "__custom__") update("model", e.target.value);
+                }}
+              >
+              <optgroup label="01-ai">
+                <option key="01-ai/yi-large" value="01-ai/yi-large">yi-large</option>
+              </optgroup>
+              <optgroup label="adept">
+                <option key="adept/fuyu-8b" value="adept/fuyu-8b">fuyu-8b</option>
+              </optgroup>
+              <optgroup label="ai21labs">
+                <option key="ai21labs/jamba-1.5-large-instruct" value="ai21labs/jamba-1.5-large-instruct">jamba-1.5-large-instruct</option>
+              </optgroup>
+              <optgroup label="aisingapore">
+                <option key="aisingapore/sea-lion-7b-instruct" value="aisingapore/sea-lion-7b-instruct">sea-lion-7b-instruct</option>
+              </optgroup>
+              <optgroup label="bigcode">
+                <option key="bigcode/starcoder2-15b" value="bigcode/starcoder2-15b">starcoder2-15b</option>
+              </optgroup>
+              <optgroup label="databricks">
+                <option key="databricks/dbrx-instruct" value="databricks/dbrx-instruct">dbrx-instruct</option>
+              </optgroup>
+              <optgroup label="deepseek-ai">
+                <option key="deepseek-ai/deepseek-coder-6.7b-instruct" value="deepseek-ai/deepseek-coder-6.7b-instruct">deepseek-coder-6.7b-instruct</option>
+                <option key="deepseek-ai/deepseek-v4.1-flash" value="deepseek-ai/deepseek-v4.1-flash">deepseek-v4.1-flash</option>
+              </optgroup>
+              <optgroup label="google">
+                <option key="google/codegemma-1.1-7b" value="google/codegemma-1.1-7b">codegemma-1.1-7b</option>
+                <option key="google/codegemma-7b" value="google/codegemma-7b">codegemma-7b</option>
+                <option key="google/deplot" value="google/deplot">deplot</option>
+                <option key="google/diffusiongemma-26b-a4b-it" value="google/diffusiongemma-26b-a4b-it">diffusiongemma-26b-a4b-it</option>
+                <option key="google/gemma-2b" value="google/gemma-2b">gemma-2b</option>
+                <option key="google/gemma-3-12b-it" value="google/gemma-3-12b-it">gemma-3-12b-it</option>
+                <option key="google/gemma-3-4b-it" value="google/gemma-3-4b-it">gemma-3-4b-it</option>
+                <option key="google/gemma-4-31b-it" value="google/gemma-4-31b-it">gemma-4-31b-it</option>
+                <option key="google/recurrentgemma-2b" value="google/recurrentgemma-2b">recurrentgemma-2b</option>
+              </optgroup>
+              <optgroup label="ibm">
+                <option key="ibm/granite-3.0-3b-a800m-instruct" value="ibm/granite-3.0-3b-a800m-instruct">granite-3.0-3b-a800m-instruct</option>
+                <option key="ibm/granite-3.0-8b-instruct" value="ibm/granite-3.0-8b-instruct">granite-3.0-8b-instruct</option>
+                <option key="ibm/granite-34b-code-instruct" value="ibm/granite-34b-code-instruct">granite-34b-code-instruct</option>
+                <option key="ibm/granite-8b-code-instruct" value="ibm/granite-8b-code-instruct">granite-8b-code-instruct</option>
+              </optgroup>
+              <optgroup label="meta">
+                <option key="meta/codellama-70b" value="meta/codellama-70b">codellama-70b</option>
+                <option key="meta/llama-3.2-11b-vision-instruct" value="meta/llama-3.2-11b-vision-instruct">llama-3.2-11b-vision-instruct</option>
+                <option key="meta/llama-3.2-90b-vision-instruct" value="meta/llama-3.2-90b-vision-instruct">llama-3.2-90b-vision-instruct</option>
+                <option key="meta/llama-guard-4-12b" value="meta/llama-guard-4-12b">llama-guard-4-12b</option>
+                <option key="meta/llama2-70b" value="meta/llama2-70b">llama2-70b</option>
+                <option key="meta/muse-glimmer-30b" value="meta/muse-glimmer-30b">muse-glimmer-30b</option>
+              </optgroup>
+              <optgroup label="microsoft">
+                <option key="microsoft/kosmos-2" value="microsoft/kosmos-2">kosmos-2</option>
+                <option key="microsoft/phi-3-vision-128k-instruct" value="microsoft/phi-3-vision-128k-instruct">phi-3-vision-128k-instruct</option>
+                <option key="microsoft/phi-3.5-moe-instruct" value="microsoft/phi-3.5-moe-instruct">phi-3.5-moe-instruct</option>
+              </optgroup>
+              <optgroup label="mistralai">
+                <option key="mistralai/codestral-22b-instruct-v0.1" value="mistralai/codestral-22b-instruct-v0.1">codestral-22b-instruct-v0.1</option>
+                <option key="mistralai/mistral-7b-instruct-v0.3" value="mistralai/mistral-7b-instruct-v0.3">mistral-7b-instruct-v0.3</option>
+                <option key="mistralai/mistral-large" value="mistralai/mistral-large">mistral-large</option>
+                <option key="mistralai/mistral-large-2-instruct" value="mistralai/mistral-large-2-instruct">mistral-large-2-instruct</option>
+                <option key="mistralai/mistral-nemotron" value="mistralai/mistral-nemotron">mistral-nemotron</option>
+                <option key="mistralai/mixtral-8x22b-v0.1" value="mistralai/mixtral-8x22b-v0.1">mixtral-8x22b-v0.1</option>
+              </optgroup>
+              <optgroup label="moonshotai">
+                <option key="moonshotai/kimi-k2.6" value="moonshotai/kimi-k2.6">kimi-k2.6</option>
+                <option key="moonshotai/kimi-k3" value="moonshotai/kimi-k3">kimi-k3</option>
+              </optgroup>
+              <optgroup label="nv-mistralai">
+                <option key="nv-mistralai/mistral-nemo-12b-instruct" value="nv-mistralai/mistral-nemo-12b-instruct">mistral-nemo-12b-instruct</option>
+              </optgroup>
+              <optgroup label="nvidia">
+                <option key="nvidia/ai-synthetic-video-detector" value="nvidia/ai-synthetic-video-detector">ai-synthetic-video-detector</option>
+                <option key="nvidia/cosmos-reason2-8b" value="nvidia/cosmos-reason2-8b">cosmos-reason2-8b</option>
+                <option key="nvidia/embed-qa-4" value="nvidia/embed-qa-4">embed-qa-4</option>
+                <option key="nvidia/ising-calibration-1.5-31b" value="nvidia/ising-calibration-1.5-31b">ising-calibration-1.5-31b</option>
+                <option key="nvidia/llama-3.1-nemoguard-8b-content-safety" value="nvidia/llama-3.1-nemoguard-8b-content-safety">llama-3.1-nemoguard-8b-content-safety</option>
+                <option key="nvidia/llama-3.1-nemoguard-8b-topic-control" value="nvidia/llama-3.1-nemoguard-8b-topic-control">llama-3.1-nemoguard-8b-topic-control</option>
+                <option key="nvidia/llama-3.1-nemotron-51b-instruct" value="nvidia/llama-3.1-nemotron-51b-instruct">llama-3.1-nemotron-51b-instruct</option>
+                <option key="nvidia/llama-3.1-nemotron-70b-instruct" value="nvidia/llama-3.1-nemotron-70b-instruct">llama-3.1-nemotron-70b-instruct</option>
+                <option key="nvidia/llama-3.1-nemotron-safety-guard-8b-v3" value="nvidia/llama-3.1-nemotron-safety-guard-8b-v3">llama-3.1-nemotron-safety-guard-8b-v3</option>
+                <option key="nvidia/llama-3.1-nemotron-ultra-253b-v1" value="nvidia/llama-3.1-nemotron-ultra-253b-v1">llama-3.1-nemotron-ultra-253b-v1</option>
+                <option key="nvidia/llama-3.2-nemoretriever-1b-vlm-embed-v1" value="nvidia/llama-3.2-nemoretriever-1b-vlm-embed-v1">llama-3.2-nemoretriever-1b-vlm-embed-v1</option>
+                <option key="nvidia/llama-3.2-nv-embedqa-1b-v1" value="nvidia/llama-3.2-nv-embedqa-1b-v1">llama-3.2-nv-embedqa-1b-v1</option>
+                <option key="nvidia/llama-nemotron-embed-vl-1b-v2" value="nvidia/llama-nemotron-embed-vl-1b-v2">llama-nemotron-embed-vl-1b-v2</option>
+                <option key="nvidia/llama3-chatqa-1.5-70b" value="nvidia/llama3-chatqa-1.5-70b">llama3-chatqa-1.5-70b</option>
+                <option key="nvidia/mistral-nemo-minitron-8b-8k-instruct" value="nvidia/mistral-nemo-minitron-8b-8k-instruct">mistral-nemo-minitron-8b-8k-instruct</option>
+                <option key="nvidia/nemotron-3-embed-1b" value="nvidia/nemotron-3-embed-1b">nemotron-3-embed-1b</option>
+                <option key="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning" value="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning">nemotron-3-nano-omni-30b-a3b-reasoning</option>
+                <option key="nvidia/nemotron-3-super-120b-a12b" value="nvidia/nemotron-3-super-120b-a12b">nemotron-3-super-120b-a12b</option>
+                <option key="nvidia/nemotron-3-ultra-550b-a55b" value="nvidia/nemotron-3-ultra-550b-a55b">nemotron-3-ultra-550b-a55b</option>
+                <option key="nvidia/nemotron-3.5-content-safety" value="nvidia/nemotron-3.5-content-safety">nemotron-3.5-content-safety</option>
+                <option key="nvidia/nemotron-3.5-lightning-30b-a3b" value="nvidia/nemotron-3.5-lightning-30b-a3b">nemotron-3.5-lightning-30b-a3b</option>
+                <option key="nvidia/nemotron-4-340b-instruct" value="nvidia/nemotron-4-340b-instruct">nemotron-4-340b-instruct</option>
+                <option key="nvidia/nemotron-4-340b-reward" value="nvidia/nemotron-4-340b-reward">nemotron-4-340b-reward</option>
+                <option key="nvidia/nemotron-nano-3-30b-a3b" value="nvidia/nemotron-nano-3-30b-a3b">nemotron-nano-3-30b-a3b</option>
+                <option key="nvidia/nemotron-parse" value="nvidia/nemotron-parse">nemotron-parse</option>
+                <option key="nvidia/nemotron-parse-2.0" value="nvidia/nemotron-parse-2.0">nemotron-parse-2.0</option>
+                <option key="nvidia/neva-22b" value="nvidia/neva-22b">neva-22b</option>
+                <option key="nvidia/nv-embedqa-mistral-7b-v2" value="nvidia/nv-embedqa-mistral-7b-v2">nv-embedqa-mistral-7b-v2</option>
+                <option key="nvidia/nvclip" value="nvidia/nvclip">nvclip</option>
+                <option key="nvidia/riva-translate-4b-instruct" value="nvidia/riva-translate-4b-instruct">riva-translate-4b-instruct</option>
+                <option key="nvidia/riva-translate-4b-instruct-v1.1" value="nvidia/riva-translate-4b-instruct-v1.1">riva-translate-4b-instruct-v1.1</option>
+                <option key="nvidia/riva-translate-4b-instruct-v2" value="nvidia/riva-translate-4b-instruct-v2">riva-translate-4b-instruct-v2</option>
+                <option key="nvidia/vila" value="nvidia/vila">vila</option>
+              </optgroup>
+              <optgroup label="openai">
+                <option key="openai/gpt-oss-20b" value="openai/gpt-oss-20b">gpt-oss-20b</option>
+              </optgroup>
+              <optgroup label="poolside">
+                <option key="poolside/laguna-xs-2.1" value="poolside/laguna-xs-2.1">laguna-xs-2.1</option>
+              </optgroup>
+              <optgroup label="snowflake">
+                <option key="snowflake/arctic-embed-l" value="snowflake/arctic-embed-l">arctic-embed-l</option>
+              </optgroup>
+              <optgroup label="writer">
+                <option key="writer/palmyra-creative-122b" value="writer/palmyra-creative-122b">palmyra-creative-122b</option>
+                <option key="writer/palmyra-fin-70b-32k" value="writer/palmyra-fin-70b-32k">palmyra-fin-70b-32k</option>
+                <option key="writer/palmyra-med-70b" value="writer/palmyra-med-70b">palmyra-med-70b</option>
+                <option key="writer/palmyra-med-70b-32k" value="writer/palmyra-med-70b-32k">palmyra-med-70b-32k</option>
+              </optgroup>
+              <optgroup label="z-ai">
+                <option key="z-ai/glm-5.3" value="z-ai/glm-5.3">glm-5.3</option>
+                <option key="z-ai/glm-5.3-flash" value="z-ai/glm-5.3-flash">glm-5.3-flash</option>
+              </optgroup>
+              <optgroup label="zyphra">
+                <option key="zyphra/zamba2-7b-instruct" value="zyphra/zamba2-7b-instruct">zamba2-7b-instruct</option>
+              </optgroup>
+                <optgroup label="Other">
+                  <option value="__custom__">Custom model…</option>
+                </optgroup>
+              </select>
+              {!NVIDIA_MODELS.includes(config.model) && (
+                <input
+                  value={config.model}
+                  onChange={(e) => update("model", e.target.value)}
+                  placeholder="Enter custom model ID"
+                />
+              )}
             </label>
           </div>
 
